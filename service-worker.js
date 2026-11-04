@@ -203,12 +203,17 @@ async function ensureFlowMusicTab() {
     try {
       const tab = await chrome.tabs.get(tabId);
       if (tab) {
-        await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+        if (!tab.url?.includes("/session")) {
+          await chrome.tabs.update(tabId, { url: "https://www.flowmusic.app/session", active: true }).catch(() => {});
+          await waitTabLoaded(tabId);
+        } else {
+          await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+        }
         return tabId;
       }
     } catch {}
   }
-  const newTab = await chrome.tabs.create({ url: "https://www.flowmusic.app/session?t=true", active: true });
+  const newTab = await chrome.tabs.create({ url: "https://www.flowmusic.app/session", active: true });
   await waitTabLoaded(newTab.id);
   activeFlowMusicTabId = newTab.id;
   try { await ensureContentScriptsInjected(newTab.id); } catch {}
@@ -4295,26 +4300,31 @@ async function handleGenerateMusic(payload = {}) {
     func: async (songPrompt) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+      // 1. If currently on library or non-session page, trigger "New session"
+      const newSessionBtn = Array.from(document.querySelectorAll("button, a, div[role='button']")).find(b =>
+        /new session|\+ new session|create a song|create song|start session/i.test((b.innerText || b.textContent || b.getAttribute("aria-label") || "").trim())
+      );
+      if (newSessionBtn && !document.querySelector("textarea, [placeholder*='song' i], [placeholder*='lyrics' i]")) {
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          try { newSessionBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+        });
+        try { newSessionBtn.click(); } catch (_) {}
+        await sleep(1500);
+      }
+
       let input = null;
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 35; i++) {
         input = document.querySelector(
-          "textarea, input[type='text'], div[contenteditable='true'], [placeholder*='song' i], [placeholder*='Describe' i], [placeholder*='lyrics' i]"
+          "textarea, input[type='text'], div[contenteditable='true'], [placeholder*='song' i], [placeholder*='Describe' i], [placeholder*='lyrics' i], [placeholder*='prompt' i], [role='textbox']"
         );
         if (input) break;
-        await sleep(250);
+        await sleep(200);
       }
 
       if (!input) {
-        const createLandingBtn = Array.from(document.querySelectorAll("button, a")).find(b =>
-          /create a song|create song|start session/i.test(b.innerText || b.textContent || "")
-        );
-        if (createLandingBtn) {
-          createLandingBtn.click();
-          await sleep(1500);
-          input = document.querySelector(
-            "textarea, input[type='text'], div[contenteditable='true'], [placeholder*='song' i], [placeholder*='Describe' i], [placeholder*='lyrics' i]"
-          );
-        }
+        // Fallback: search for any visible editable element
+        const allEditables = Array.from(document.querySelectorAll("textarea, [contenteditable='true'], input:not([type='hidden'])"));
+        input = allEditables.find(el => el.offsetWidth > 50 && el.offsetHeight > 20);
       }
 
       if (!input) return { ok: false, error: "Prompt input element not found on Flow Music." };

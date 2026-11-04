@@ -4315,7 +4315,10 @@ async function handleGenerateMusic(payload = {}) {
       let input = null;
       for (let i = 0; i < 35; i++) {
         input = document.querySelector(
-          "textarea, input[type='text'], div[contenteditable='true'], [placeholder*='song' i], [placeholder*='Describe' i], [placeholder*='lyrics' i], [placeholder*='prompt' i], [role='textbox']"
+          "textarea[placeholder*='Producer' i], textarea[placeholder*='Ask' i], textarea, " +
+          "input[placeholder*='Producer' i], input[placeholder*='Ask' i], " +
+          "div[contenteditable='true'][placeholder*='Producer' i], div[contenteditable='true'], " +
+          "[placeholder*='song' i], [placeholder*='Describe' i], [placeholder*='lyrics' i], [placeholder*='prompt' i], [role='textbox']"
         );
         if (input) break;
         await sleep(200);
@@ -4334,24 +4337,48 @@ async function handleGenerateMusic(payload = {}) {
 
       if (input.tagName === "DIV" && input.isContentEditable) {
         input.innerText = songPrompt;
+        input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: songPrompt }));
         input.dispatchEvent(new Event("input", { bubbles: true }));
       } else {
         const proto = Object.getPrototypeOf(input);
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set || ((v) => { input.value = v; });
         setter.call(input, songPrompt);
+        input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: songPrompt }));
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
       }
       await sleep(300);
 
-      const cands = Array.from(document.querySelectorAll("button, [role='button'], button[type='submit']"));
-      const submitBtn = cands.find(b => {
-        const t = (b.innerText || b.textContent || b.getAttribute("aria-label") || "").toLowerCase();
-        return /create|generate|send|submit|produce/i.test(t) || b.querySelector("svg.lucide-arrow-right, svg");
-      }) || input.form?.querySelector("button[type='submit']");
+      // Locate submit button in input bar (e.g. cyan circle button with arrow-up in screenshot)
+      const container = input.closest("form, div.relative, div[class*='rounded'], div:has(> textarea), div:has(> input)") || input.parentElement?.parentElement || document;
+      const allBtns = Array.from(container.querySelectorAll("button"));
+
+      // Priority 1: Arrow-up or submit icon button (lucide-arrow-up / arrow up icon)
+      let submitBtn = allBtns.find(b => {
+        const aria = (b.getAttribute("aria-label") || "").toLowerCase();
+        const svg = b.querySelector("svg");
+        const svgClass = svg ? (svg.getAttribute("class") || "") : "";
+        return /arrow-up|lucide-arrow-up|send|submit/i.test(svgClass) || /send|submit|arrow.*up/i.test(aria);
+      });
+
+      // Priority 2: Styled cyan/colored circular button in the input bar
+      if (!submitBtn) {
+        submitBtn = allBtns.find(b => {
+          const cls = b.getAttribute("class") || "";
+          return /bg-cyan|bg-primary|rounded-full/i.test(cls);
+        });
+      }
+
+      // Priority 3: The last button in the input container
+      if (!submitBtn && allBtns.length > 0) {
+        submitBtn = allBtns[allBtns.length - 1];
+      }
 
       if (submitBtn) {
-        submitBtn.click();
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          try { submitBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+        });
+        try { submitBtn.click(); } catch (_) {}
       } else {
         input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
       }
@@ -4365,7 +4392,7 @@ async function handleGenerateMusic(payload = {}) {
     throw new Error("Failed to submit song prompt to Flow Music: " + (submitted?.error || "unknown"));
   }
 
-  // Poll for audio element or completed track (up to 90s)
+  // Poll for track generation in session (up to 90s, polling every 2s)
   let audioResult = null;
   for (let i = 0; i < 45; i++) {
     await new Promise(r => setTimeout(r, 2000));
@@ -4375,17 +4402,31 @@ async function handleGenerateMusic(payload = {}) {
         const audios = Array.from(document.querySelectorAll("audio"));
         const validAudio = audios.find(a => a.src && a.src.length > 5 && !a.src.startsWith("blob:null"));
         const downloadLinks = Array.from(document.querySelectorAll("a[href*='.mp3'], a[href*='.wav'], a[download]"));
+        const playBtns = Array.from(document.querySelectorAll("button:has(svg.lucide-play), button[aria-label*='Play' i]"));
+        const songCards = Array.from(document.querySelectorAll("[data-track], [data-song], .song-card, .track-item"));
+        const titles = Array.from(document.querySelectorAll("h2, h3, h4, .font-semibold, .font-bold, [data-song-title]"))
+          .map(el => (el.innerText || "").trim())
+          .filter(t => t.length > 2 && !/new session|flow music|what do you want|producer|ask producer/i.test(t));
+        const isGenerating = /generating|creating|producing|rendering|in queue|queued/i.test(document.body?.innerText || "");
+
         return {
           hasAudio: !!validAudio,
           audioUrl: validAudio?.src || downloadLinks[0]?.href || null,
-          title: document.querySelector("[data-song-title], .song-title, h2, h3")?.innerText?.trim() || "Generated Song"
+          hasPlayButton: playBtns.length > 0,
+          songCount: songCards.length,
+          title: titles[0] || null,
+          isGenerating,
+          url: window.location.href
         };
       }
     }).then(r => r?.[0]?.result).catch(() => null);
 
-    if (probe?.audioUrl) {
+    if (probe?.hasAudio || probe?.hasPlayButton || (probe?.title && !probe?.isGenerating)) {
       audioResult = probe;
       break;
+    }
+    if (probe?.isGenerating && !audioResult) {
+      audioResult = probe;
     }
   }
 
@@ -4774,6 +4815,49 @@ async function connectToAntigravityServer(force = false) {
           }
           case "generate_music": {
             result = await handleGenerateMusic(payload);
+            break;
+          }
+          case "query_flow_music": {
+            const tabId = await ensureFlowMusicTab();
+            const res = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                const url = window.location.href;
+                const textareas = Array.from(document.querySelectorAll("textarea")).map(t => ({
+                  placeholder: t.getAttribute("placeholder"),
+                  value: t.value,
+                  className: t.className
+                }));
+                const inputs = Array.from(document.querySelectorAll("input:not([type='hidden'])")).map(i => ({
+                  placeholder: i.getAttribute("placeholder"),
+                  value: i.value,
+                  type: i.type,
+                  className: i.className
+                }));
+                const editables = Array.from(document.querySelectorAll("[contenteditable='true']")).map(e => ({
+                  innerText: e.innerText,
+                  placeholder: e.getAttribute("placeholder"),
+                  className: e.className
+                }));
+                const buttons = Array.from(document.querySelectorAll("button")).map(b => ({
+                  text: (b.innerText || "").trim().slice(0, 30),
+                  aria: b.getAttribute("aria-label"),
+                  svgClass: b.querySelector("svg")?.getAttribute("class") || null,
+                  disabled: b.disabled
+                }));
+                const audioElements = Array.from(document.querySelectorAll("audio")).map(a => a.src);
+                return {
+                  url,
+                  textareas,
+                  inputs,
+                  editables,
+                  buttons: buttons.slice(0, 30),
+                  audioElements,
+                  bodyPreview: (document.body.innerText || "").slice(0, 300)
+                };
+              }
+            });
+            result = res?.[0]?.result;
             break;
           }
           case "autonomous_storyboard_pipeline":

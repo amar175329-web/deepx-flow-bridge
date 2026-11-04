@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en" class="unlocked">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>DeepX Flow Studio</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #121827;
+      --card-hover: #1a233a;
+      --accent: #00e5ff;
+      --accent-glow: rgba(0, 229, 255, 0.25);
+      --purple: #7c4dff;
+      --text: #f0f6fc;
+      --text-muted: #8b949e;
+      --border: #1f2b45;
+      --success: #00e676;
+      --danger: #ff5252;
+      --warning: #ffd600;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand img {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+    }
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      background: linear-gradient(90deg, var(--accent), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .badge {
+      font-size: 10px;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+    .badge.active {
+      background: rgba(0, 230, 118, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(0, 230, 118, 0.4);
+    }
+    .badge.standby {
+      background: rgba(117, 117, 117, 0.25);
+      color: #b0bec5;
+      border: 1px solid rgba(117, 117, 117, 0.5);
+    }
+    .badge.disconnected {
+      background: rgba(255, 82, 82, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(255, 82, 82, 0.3);
+    }
+
+    /* Standby Banner when user is on a non-Flow tab */
+    .standby-banner {
+      display: none;
+      background: rgba(255, 214, 0, 0.12);
+      border: 1px solid rgba(255, 214, 0, 0.3);
+      color: #fff9c4;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .standby-banner.visible {
+      display: block;
+    }
+
+    .btn-master {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      color: #090d16;
+      font-weight: 800;
+      border: none;
+      padding: 12px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 4px 16px var(--accent-glow);
+      transition: all 0.2s ease;
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+    .btn-master:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .status-item {
+      background: rgba(0, 0, 0, 0.25);
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .status-item.clickable {
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .status-item.clickable:hover {
+      background: rgba(0, 229, 255, 0.12);
+      border-color: rgba(0, 229, 255, 0.4);
+      transform: translateY(-1px);
+    }
+    .status-item .label {
+      color: var(--text-muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .status-item .val {
+      font-weight: 600;
+    }
+    .btn-sync {
+      background: rgba(0, 229, 255, 0.1);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      color: var(--accent);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s ease;
+    }
+    .btn-sync:hover {
+      background: rgba(0, 229, 255, 0.25);
+      border-color: var(--accent);
+    }
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .tag {
+      background: rgba(0, 229, 255, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(0, 229, 255, 0.25);
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .log-box {
+      background: #05080e;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      height: 140px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 11px;
+      color: #b0bec5;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .log-entry {
+      line-height: 1.4;
+      word-break: break-all;
+    }
+    .log-entry.info { color: #81d4fa; }
+    .log-entry.success { color: var(--success); }
+    .log-entry.error { color: var(--danger); }
+    .btn-secondary {
+      background: #1e293b;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover {
+      background: #334155;
+    }
+    .ui-map-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .ui-map-item {
+      background: rgba(0, 229, 255, 0.05);
+      border: 1px solid rgba(0, 229, 255, 0.15);
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--success);
+      color: #090d16;
+      font-weight: 800;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      box-shadow: 0 4px 14px rgba(0, 230, 118, 0.4);
+    }
+    .toast.show { opacity: 1; }
+    .btn-power {
+      padding: 7px 16px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 6px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-power-off {
+      background: linear-gradient(135deg, #00e5ff, #00e676);
+      color: #0b0f19;
+      box-shadow: 0 2px 10px rgba(0, 229, 255, 0.3);
+    }
+    .btn-power-off:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
+    .btn-power-on {
+      background: rgba(255, 82, 82, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(255, 82, 82, 0.4);
+    }
+    .btn-power-on:hover {
+      background: rgba(255, 82, 82, 0.25);
+    }
+
+    /* Zero-Glitch Instant Lock Gate Controller */
+    .app-container {
+      display: block !important;
+    }
+
+    @keyframes ytFadeIn {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes ytPulse {
+      0% { border-color: #3f3f3f; }
+      100% { border-color: #ff0000; box-shadow: 0 0 16px rgba(255, 0, 0, 0.4); }
+    }
+
+    /* ===== DeepX v1.3 polish ===== */
+    html { scroll-behavior: smooth; }
+    body { background: radial-gradient(1200px 500px at 50% -10%, rgba(124,77,255,.14), transparent 60%), var(--bg); -webkit-font-smoothing: antialiased; }
+    @keyframes dxFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes dxPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(0,230,118,.45); } 50% { box-shadow: 0 0 0 6px rgba(0,230,118,0); } }
+    .card { animation: dxFadeUp .35s ease both; backdrop-filter: blur(6px); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+    .card:hover { border-color: rgba(0,229,255,.35); box-shadow: 0 6px 22px rgba(0,0,0,.35); }
+    .header { position: sticky; top: 0; z-index: 20; background: linear-gradient(var(--bg) 80%, transparent); padding-top: 4px; }
+    button { transition: transform .12s ease, filter .15s ease, background .15s ease, box-shadow .15s ease, opacity .15s ease; cursor: pointer; }
+    button:hover:not(:disabled) { filter: brightness(1.12); transform: translateY(-1px); }
+    button:active:not(:disabled) { transform: translateY(0) scale(.98); }
+    button:disabled { opacity: .5; cursor: wait; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    input, select, textarea { transition: border-color .15s ease, box-shadow .15s ease; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-glow); }
+    .badge.active, .badge.connected { animation: dxPulse 2.2s infinite; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #243251; border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: #2f4170; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+    /* Projects card */
+    .proj-input { flex: 1; min-width: 0; background: #05080e; border: 1px solid var(--border); color: #fff; padding: 8px 10px; border-radius: 8px; font-size: 12px; }
+    .proj-create { padding: 8px 14px; font-size: 12px; font-weight: 800; background: linear-gradient(135deg,#00e5ff,#7c4dff); color: #000; border: 0; border-radius: 8px; white-space: nowrap; }
+    .proj-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+    .proj-row { display: flex; align-items: center; gap: 6px; padding: 7px 9px; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 8px; animation: dxFadeUp .25s ease both; }
+    .proj-row.current { border-color: var(--accent); background: rgba(0,229,255,.07); }
+    .proj-name { flex: 1; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .proj-btn { font-size: 10.5px; font-weight: 700; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: rgba(0,229,255,.12); color: var(--accent); }
+    .proj-btn.del { background: rgba(255,82,82,.12); color: var(--danger); border-color: rgba(255,82,82,.35); }
+    .proj-btn.del.armed { background: var(--danger); color: #fff; }
+    .proj-empty { font-size: 11px; color: var(--text-muted); text-align: center; padding: 10px; }
+    .proj-empty.err { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <!-- Main Application Container (Hidden while locked) -->
+  <div id="appContainer" class="app-container">
+  <div class="header">
+    <div class="brand">
+      <img src="icons/icon48.png" alt="DeepX">
+      <div>
+        <h1>DeepX Flow</h1>
+        <div style="font-size: 10px; color: var(--text-muted);">AI Generation Engine</div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <div id="spBadge" class="badge active">ON (Active) 🟢</div>
+    </div>
+  </div>
+
+  <div class="card" id="spPowerCard" style="border: 1px solid var(--accent); background: linear-gradient(180deg, #18233c 0%, #101626 100%); margin-bottom: 12px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">Extension Power</div>
+        <div id="spPowerStatusText" style="font-size: 13px; font-weight: 700; margin-top: 2px;">ON (Active)</div>
+      </div>
+      <button id="spBtnTogglePower" class="btn-power btn-power-on">Turn OFF</button>
+    </div>
+    <div id="spPowerHintText" style="font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">
+      Manual Power Control: DeepX stays ON until you manually turn it OFF.
+    </div>
+  </div>
+
+  <div id="spStandbyBanner" class="standby-banner">
+    ⚠️ <strong>DeepX is paused (OFF)</strong>. Click <strong>Turn ON</strong> above to resume generation.
+  </div>
+
+
+  <!-- Flow Projects: full control -->
+  <div class="card" id="spProjectsCard">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>📁 Flow Projects</span>
+      <button id="spBtnProjRefresh" class="btn-secondary" style="padding:3px 10px;font-size:10px;">↻ Refresh</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <input type="text" id="spProjNameInput" class="proj-input" placeholder="New project name (optional)">
+      <button id="spBtnProjCreate" class="btn-secondary proj-create">＋ Create</button>
+    </div>
+    <div id="spProjList" class="proj-list"><div class="proj-empty">Tap Refresh to load your Flow projects.</div></div>
+  </div>
+
+  <!-- Antigravity MCP Hub -->
+  <div class="card" style="border: 1px solid rgba(0, 229, 255, 0.4); background: linear-gradient(180deg, #182744 0%, #0d1627 100%); margin-bottom: 12px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <div style="font-size: 10.5px; text-transform: uppercase; color: var(--accent); font-weight: 800; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px;">
+        <span>⚡</span> Antigravity MCP Hub
+      </div>
+      <span id="spMcpHubBadge" class="badge" style="background: rgba(0, 229, 255, 0.15); color: var(--accent); font-size: 8.5px; padding: 1px 6px;">PROMPTS &amp; LAUNCH</span>
+    </div>
+
+    <!-- Main Action: Open Antigravity and Copy Connect Prompt -->
+    <button id="spBtnOpenAntigravity" class="btn-master" style="margin-top: 0; margin-bottom: 8px; background: linear-gradient(135deg, #00e5ff 0%, #00b0ff 100%); color: #000; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 6px;">
+      <span>🚀</span> Open Antigravity &amp; Paste Prompt
+    </button>
+
+    <!-- Quick Prompt Copy Row -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+      <button id="spBtnCopyConnectPrompt" class="btn-secondary" style="font-size: 9.5px; padding: 6px 4px; display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(0, 230, 118, 0.14); color: var(--success); border-color: rgba(0, 230, 118, 0.45); font-weight: 700;" title="Copy 1-click connect prompt for Antigravity">
+        <span>⚡</span> Copy Connect Prompt
+      </button>
+      <button id="spBtnCopyDisconnectPrompt" class="btn-secondary" style="font-size: 9.5px; padding: 6px 4px; display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(255, 82, 82, 0.14); color: var(--danger); border-color: rgba(255, 82, 82, 0.45); font-weight: 700;" title="Disconnect from Antigravity MCP Server">
+        <span>🔌</span> Disconnect MCP
+      </button>
+    </div>
+
+    <!-- Master Setup Prompt -->
+    <button id="spBtnCopyPrompt" class="btn-secondary" style="width: 100%; font-size: 9px; padding: 5px 8px; display: flex; align-items: center; justify-content: center; gap: 5px; color: var(--text-muted); border-color: rgba(255, 255, 255, 0.12);" title="Copy full master setup instructions with rules &amp; skills">
+      <span>📋</span> Copy Full Setup &amp; Directorial Prompt
+    </button>
+  </div>
+
+  <!-- Antigravity MCP Bridge Configuration -->
+  <div class="card" style="margin-bottom: 12px;">
+    <div class="card-title">Antigravity MCP Bridge</div>
+    <div class="status-row" style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
+      <span class="status-label" style="color: var(--text-muted);">Bridge Host:</span>
+      <span id="spActiveHostVal" class="status-val" style="color: var(--accent); font-family: monospace;">flow-bridge20.duckdns.org</span>
+    </div>
+    <div class="input-group" style="display: flex; gap: 6px;">
+      <input type="text" id="spCustomHostInput" placeholder="flow-bridge20.duckdns.org" value="flow-bridge20.duckdns.org" style="flex: 1; background: #05080e; border: 1px solid var(--border); color: #fff; padding: 6px 8px; border-radius: 4px; font-size: 11px;">
+      <button id="spBtnSaveHost" class="btn-secondary" style="padding: 6px 14px; font-size: 11px; font-weight: 700; background: rgba(0, 229, 255, 0.15); color: var(--accent); border-color: rgba(0, 229, 255, 0.45);">Set</button>
+    </div>
+  </div>
+
+  <!-- Brain vs Hands Operational Card -->
+  <div class="card" style="border: 1px solid rgba(0, 229, 255, 0.3); background: linear-gradient(180deg, rgba(0, 229, 255, 0.08) 0%, rgba(13, 20, 36, 0.7) 100%); margin-bottom: 12px;">
+    <div class="card-title" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: var(--accent);">
+      <span>🧠 Brain vs. Hands Workflow</span>
+      <span style="font-size: 10px; color: var(--success); font-weight: 700;">Antigravity Directed</span>
+    </div>
+    <div style="font-size: 11px; color: #b0bec5; line-height: 1.45; margin-bottom: 8px;">
+      <strong style="color: #fff;">Antigravity is the Brain</strong>: Analyzes your entire story & asks Ratio, Timing, Quantity, and Model before rendering.<br>
+      <strong style="color: var(--accent);">DeepX is the Hands</strong>: Dispatches to Google Flow only at the final step.
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--text-muted); background: rgba(0,0,0,0.35); padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+      <div>1️⃣ Story Analysis</div>
+      <div style="color: var(--accent);">➔</div>
+      <div>2️⃣ Alignment Qs</div>
+      <div style="color: var(--accent);">➔</div>
+      <div>3️⃣ Plan Review</div>
+      <div style="color: var(--accent);">➔</div>
+      <div style="color: var(--success); font-weight: 700;">4️⃣ Flow Render 🎬</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+      <span>Live Session Matrix</span>
+      <button id="spBtnSyncAccount" class="btn-sync" title="Sync Account and Project with Google Flow">
+        <span>🔄</span> Sync
+      </button>
+    </div>
+    <div class="status-grid">
+      <div id="spCardWs" class="status-item clickable" title="Antigravity MCP status">
+        <div class="label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Antigravity MCP</span>
+          <span id="spWsCopyBadge" style="font-size: 9px; opacity: 0.8; display: none;">📋 Copy</span>
+        </div>
+        <div id="spWsStatus" class="val" style="color: var(--success);">Connected 🟢</div>
+      </div>
+      <div id="spCardTab" class="status-item clickable" title="Click to view/focus Google Flow tab">
+        <div class="label">Google Flow Tab</div>
+        <div id="spTabStatus" class="val" style="color: var(--success);">Attached</div>
+      </div>
+      <div id="spCardProject" class="status-item clickable" title="Click to refresh Project Name & ID from Google Flow">
+        <div class="label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Project</span>
+          <span style="font-size: 9px; opacity: 0.8;">🔄 Refresh</span>
+        </div>
+        <div id="spProjectId" class="val" style="color: #81d4fa; font-size: 11px;">Loading...</div>
+      </div>
+      <div id="spCardAccount" class="status-item clickable" title="Click to connect or sync Google Account">
+        <div class="label">Google Account</div>
+        <div id="spAuthStatus" class="val" style="color: var(--success);">Connected (PRO) ✅</div>
+      </div>
+      <div id="spCardMusic" class="status-item clickable" title="Click to view/focus Google Flow Music (flowmusic.app)">
+        <div class="label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Flow Song Tab</span>
+          <span style="font-size: 9px; opacity: 0.8;">🎵 Open</span>
+        </div>
+        <div id="spMusicStatus" class="val" style="color: var(--accent);">Attach / Open 🎵</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Deep Knowledge UI Map</div>
+    <div style="font-size: 11px; color: var(--text-muted);">
+      DeepX automatically detects and controls all Google Flow features:
+    </div>
+    <div class="ui-map-grid">
+      <div class="ui-map-item"><span>➕</span> <strong>Upload Media</strong> button</div>
+      <div class="ui-map-item"><span>✍️</span> <strong>Prompt</strong> textbox</div>
+      <div class="ui-map-item"><span>⚙️</span> <strong>Model & 720p/1080p</strong></div>
+      <div class="ui-map-item"><span>📐</span> <strong>9:16 / 16:9</strong> toggles</div>
+      <div class="ui-map-item"><span>⏱️</span> <strong>5s / 8s / 10s</strong> duration</div>
+      <div class="ui-map-item"><span>🚀</span> <strong>Submit</strong> button</div>
+      <div class="ui-map-item"><span>👤</span> <strong>@Character</strong> tags</div>
+      <div class="ui-map-item"><span>🎬</span> <strong>isConcat</strong> frame chain</div>
+    </div>
+  </div>
+
+  <!-- Rapid Multi-Scene Dispatcher (AnyAI Style) -->
+  <div class="card">
+    <div class="card-title">
+      <span>Rapid Scene Dispatcher (AnyAI Style)</span>
+      <span id="spSceneCounter" class="badge" style="background: rgba(0, 229, 255, 0.15); color: var(--accent);">0 Scenes</span>
+    </div>
+    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+      Separate prompts by an <strong>empty line (gap)</strong>. DeepX parses each scene and pastes them into Google Flow back-to-back in parallel.
+    </div>
+
+    <!-- Mode Selector: Video vs Image vs Music (Realtime Toggle) -->
+    <div style="display: flex; gap: 6px; margin-bottom: 10px; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 8px; border: 1px solid var(--border);">
+      <button id="spModeVideoBtn" class="mode-btn active" style="flex: 1; padding: 7px 6px; border-radius: 6px; font-weight: 700; font-size: 11px; cursor: pointer; border: none; background: linear-gradient(135deg, var(--accent), var(--purple)); color: #090d16; transition: all 0.2s;">
+        🎬 Video
+      </button>
+      <button id="spModeImageBtn" class="mode-btn" style="flex: 1; padding: 7px 6px; border-radius: 6px; font-weight: 700; font-size: 11px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--text-muted); transition: all 0.2s;">
+        🖼️ Image
+      </button>
+      <button id="spModeMusicBtn" class="mode-btn" style="flex: 1; padding: 7px 6px; border-radius: 6px; font-weight: 700; font-size: 11px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--text-muted); transition: all 0.2s;">
+        🎵 Flow Song Studio
+      </button>
+    </div>
+
+    <!-- Multi-prompt textarea (shared for Video/Image or custom prompts) -->
+    <div id="spPromptContainer">
+      <textarea id="spMultiPromptText" rows="5" style="width: 100%; background: #05080e; border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 8px; font-size: 11px; font-family: monospace; resize: vertical; line-height: 1.4; margin-bottom: 8px;" placeholder="Scene 1: Cinematic wide shot of @boy wearing DeepX tech hat in neon alleyway #scene01&#10;&#10;Scene 2: Close-up macro on the waterproof DeepX logo and stitching #scene02&#10;&#10;Scene 3: Confident hero pose in the rain adjusting the hat #scene03"></textarea>
+    </div>
+
+    <!-- FLOW MUSIC / SONG CONTROLS CONTAINER -->
+    <div id="spMusicControlsRow" style="display: none; flex-direction: column; gap: 8px; margin-bottom: 10px;">
+      <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 6px;">
+        <div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Song Style Preset</div>
+          <select id="spSelectMusicPreset" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+            <option value="slow_acoustic" selected>🌙 Slow Lofi / Chill Acoustic (Default)</option>
+            <option value="emotional_ballad">🎻 Emotional Slow Ballad (Strings/Piano)</option>
+            <option value="bollywood_romantic">🌸 Bollywood Romantic / Devotional</option>
+            <option value="cinematic_epic">⚡ Cinematic Epic Trailer & Soundscape</option>
+            <option value="calm_ambient">🎹 Calm Meditative / Ambient</option>
+            <option value="synthwave">🎸 Retro Indie Synthwave</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Vocal Type</div>
+          <select id="spSelectMusicVocal" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+            <option value="vocals" selected>Vocals (Singing + Lyrics)</option>
+            <option value="instrumental">Pure Instrumental (No Vocals)</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Track Title / Theme (Optional)</div>
+        <input type="text" id="spMusicTitle" class="proj-input" style="width: 100%;" placeholder="e.g. Slow Rainy Evening Ballad">
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+        <input type="checkbox" id="spMusicStyleLock" checked style="accent-color: var(--accent); cursor: pointer;">
+        <label for="spMusicStyleLock" style="font-size: 11px; color: var(--accent); cursor: pointer; font-weight: 600;">
+          🔒 Sonic DNA Style Lock (Preserves BPM, vocal style & instruments across songs)
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 6px; margin-top: 4px;">
+        <button id="spBtnGenerateMusic" class="btn-master" style="flex: 2; margin-bottom: 0; padding: 10px; font-size: 12px; background: linear-gradient(135deg, #7c4dff, #00e5ff); color: #fff;">
+          <span>🎵</span> Generate Track on Flow Music
+        </button>
+        <button id="spBtnOpenFlowMusic" class="btn-secondary" style="flex: 1; padding: 10px; font-size: 11px; font-weight: 700; border-color: rgba(124, 77, 255, 0.4); color: var(--accent);">
+          <span>🎧</span> Open Studio
+        </button>
+      </div>
+
+      <div id="spMusicPlayerCard" style="display: none; background: rgba(124, 77, 255, 0.1); border: 1px solid rgba(124, 77, 255, 0.35); border-radius: 8px; padding: 10px; margin-top: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span id="spMusicTrackTitle" style="font-size: 12px; font-weight: 700; color: #fff;">Flow Music Track</span>
+          <a id="spMusicDownloadLink" href="#" download class="btn-secondary" style="font-size: 10px; padding: 3px 8px; text-decoration: none; color: var(--accent); border-color: rgba(0, 229, 255, 0.4);">⬇ Download MP3</a>
+        </div>
+        <audio id="spAudioPlayer" controls style="width: 100%; height: 32px; border-radius: 4px;"></audio>
+      </div>
+    </div>
+    
+    <!-- Real-Time Dynamic Parameter Controls -->
+    <!-- VIDEO CONTROLS CONTAINER -->
+    <div id="spVideoControlsRow" style="display: grid; grid-template-columns: 1.2fr 0.9fr 0.9fr 0.8fr; gap: 6px; margin-bottom: 10px;">
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Video Model</div>
+        <select id="spSelectVideoModel" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="veo-omni" selected>Omni 1.1 Flash (Fast)</option>
+          <option value="veo-quality">Veo 3.1 - Quality</option>
+          <option value="veo-lite">Veo 3.1 - Lite</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Ratio</div>
+        <select id="spSelectRatio" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="9:16" selected>9:16 (Shorts/Reels)</option>
+          <option value="16:9">16:9 (Landscape)</option>
+          <option value="1:1">1:1 (Square)</option>
+          <option value="4:3">4:3 (Classic)</option>
+          <option value="3:4">3:4 (Portrait)</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Timing</div>
+        <select id="spSelectDuration" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="10" selected>10s (Omni)</option>
+          <option value="8">8s</option>
+          <option value="5">5s</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Quantity</div>
+        <select id="spSelectVideoCount" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="4">4x</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- IMAGE CONTROLS CONTAINER (Hidden when in Video mode) -->
+    <div id="spImageControlsRow" style="display: none; grid-template-columns: 1.3fr 1fr 0.8fr; gap: 6px; margin-bottom: 10px;">
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Image Model</div>
+        <select id="spSelectImageModel" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="🍌 Nano Banana 2.1" selected>🍌 Nano Banana 2.1 (Ultra Real)</option>
+          <option value="🍌 Nano Banana 2">🍌 Nano Banana 2</option>
+          <option value="🍌 Nano Banana Pro">🍌 Nano Banana Pro</option>
+          <option value="🍌 Nano Banana 2 Lite">🍌 Nano Banana 2 Lite</option>
+          <option value="Imagen 3">Imagen 3</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Ratio</div>
+        <select id="spSelectImageRatio" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="9:16" selected>9:16 (Vertical)</option>
+          <option value="16:9">16:9 (Landscape)</option>
+          <option value="1:1">1:1 (Square)</option>
+          <option value="4:3">4:3</option>
+          <option value="3:4">3:4</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Quantity</div>
+        <select id="spSelectImageCount" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="1">1x</option>
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="4" selected>4x</option>
+        </select>
+      </div>
+    </div>
+
+    <button id="spBtnDispatchBatch" class="btn-master" style="margin-bottom: 0; padding: 10px; font-size: 12px;">
+      <span>⚡</span> Dispatch All Scenes Back-to-Back (Parallel)
+    </button>
+    <button id="spBtnAutoStoryboard" class="btn-master" style="margin-top: 8px; margin-bottom: 0; padding: 10px; font-size: 12px; background: linear-gradient(135deg, #00e676, #00b0ff); color: #05080e;">
+      <span>🚀</span> Launch Autonomous Storyboard Pipeline (Auto-Analyze & Auto-Chain)
+    </button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <span>Project Characters & References</span>
+      <button id="spBtnScanChars" class="btn-secondary">Scan</button>
+    </div>
+    <div id="spCharList" class="tag-list">
+      <span style="color: var(--text-muted); font-size: 11px;">Click 'Scan' to discover characters in current Flow project.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Real-Time Activity & Logs</div>
+    <div id="spLogBox" class="log-box">
+      <div class="log-entry info">[DeepX Engine initialized. Waiting for Antigravity commands...]</div>
+    </div>
+  </div>
+
+  <div id="spToast" class="toast">Master Prompt Copied!</div>
+
+    </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

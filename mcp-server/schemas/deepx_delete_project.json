@@ -1,0 +1,1 @@
+{"name": "deepx_delete_project", "description": "Delete a Google Flow project by id, name, or the current one.", "parameters": {"$schema": "http://json-schema.org/draft-07/schema#", "properties": {"project_id": {"type": "string"}, "name": {"type": "string"}, "current": {"type": "boolean"}}, "type": "object"}}

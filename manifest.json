@@ -1,0 +1,93 @@
+{
+  "manifest_version": 3,
+  "name": "DeepX - Antigravity Flow Bridge",
+  "short_name": "DeepX Flow",
+  "version": "1.3.6",
+  "description": "Unified high-performance zero-latency bridge connecting Antigravity Coding Agents directly to Google Flow (Veo Omni, Veo 3.1 & Imagen 3) and Google Flow Music (flowmusic.app) with persistent audio/visual style-locking, rapid parallel dispatch, multi-ingredient stacking, ultra-fast DataTransfer uploads, and mobile Kiwi/Mises Browser zero-crash engine.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "DeepX Flow Studio",
+    "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://labs.google.com/*",
+        "https://labs.google/*",
+        "https://flow.google.com/*",
+        "https://*.flowmusic.app/*",
+        "https://flowmusic.app/*"
+      ],
+      "js": [
+        "catchUploadFile.js",
+        "content-script-main.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://labs.google.com/*",
+        "https://labs.google/*",
+        "https://flow.google.com/*",
+        "https://*.flowmusic.app/*",
+        "https://flowmusic.app/*"
+      ],
+      "js": [
+        "content-script-isolated.js"
+      ],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "scripting",
+    "sidePanel",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://labs.google.com/*",
+    "https://labs.google/*",
+    "https://flow.google.com/*",
+    "https://*.flowmusic.app/*",
+    "https://flowmusic.app/*",
+    "https://aisandbox-pa.googleapis.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://labs.google.com/*",
+        "https://labs.google/*",
+        "https://flow.google.com/*",
+        "https://*.flowmusic.app/*",
+        "https://flowmusic.app/*",
+        "<all_urls>"
+      ],
+      "resources": [
+        "popup.html",
+        "sidepanel.html",
+        "catchUploadFile.js",
+        "content-script-main.js"
+      ]
+    }
+  ]
+}

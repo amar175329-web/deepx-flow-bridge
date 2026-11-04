@@ -1,0 +1,1 @@
+{"name": "deepx_create_project", "description": "Create a brand-new Google Flow project, open it, and optionally name it.", "parameters": {"$schema": "http://json-schema.org/draft-07/schema#", "properties": {"name": {"type": "string"}}, "type": "object"}}

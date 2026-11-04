@@ -1,0 +1,12 @@
+node_modules/
+mcp-server/node_modules/
+*.log
+*.bak
+.DS_Store
+
+# Older historical zips (keep latest v1.3.6 and deepx.zip)
+deepx-v1.3.1.zip
+deepx-v1.3.2.zip
+deepx-v1.3.3.zip
+deepx-v1.3.4.zip
+deepx-v1.3.5.zip

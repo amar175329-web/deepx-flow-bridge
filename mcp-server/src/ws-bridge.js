@@ -467,24 +467,30 @@ export class DeepXWsBridge {
 
   async sendCommand(command, payload = {}, timeoutMs = 180000, onProgress = null) {
     if (this.isProxy) {
+      let response;
       try {
-        const response = await fetch(`http://127.0.0.1:${this.port}/api/command`, {
+        response = await fetch(`http://127.0.0.1:${this.port}/api/command`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ command, payload, timeout: timeoutMs }),
           signal: AbortSignal.timeout(timeoutMs + 10000)
         });
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(data.error || "Proxy command failed");
+      } catch (err) {
+        console.error(`[DeepX Bridge] Proxy network error (${err.message}). Probing port ${this.port}...`);
+        try {
+          const probe = await fetch(`http://127.0.0.1:${this.port}/status`, { signal: AbortSignal.timeout(2000) });
+          if (!probe.ok) this.isProxy = false;
+        } catch (_) {
+          this.isProxy = false;
+        }
+      }
+
+      if (response) {
+        const data = await response.json().catch(() => null);
+        if (!data || !data.success) {
+          throw new Error(data?.error || "Proxy command failed");
         }
         return data.result;
-      } catch (err) {
-        console.error(`[DeepX Bridge] Proxy command failed (${err.message}). Resetting proxy mode to reclaim port.`);
-        this.isProxy = false;
-        try {
-          await this.start();
-        } catch (e) {}
       }
     }
 

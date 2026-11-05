@@ -1,24 +1,18 @@
 // DeepX Antigravity Flow Bridge Service Worker
 // High-performance bidirectional bridge connecting Antigravity agents to Google Flow
 
-// Automatically open the full studio Side Panel when clicking the extension icon
-if (chrome.sidePanel?.setPanelBehavior) {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) => {
-    console.warn("[DeepX] setPanelBehavior warning:", err);
-  });
-}
-
+// Mobile & Desktop Action Handler
+// Note: We deliberately do NOT set openPanelOnActionClick: true because on mobile Chromium
+// (Mises Browser, Kiwi), sidePanel is absent and openPanelOnActionClick suppresses default_popup,
+// triggering ERR_FILE_NOT_FOUND when Mises tries to resolve an empty side panel URL.
+// If a mobile browser fires onClicked instead of opening default_popup natively,
+// we safely open index.html in an active tab.
 chrome.action?.onClicked?.addListener(async (tab) => {
   try {
-    if (chrome.sidePanel?.open) {
-      if (tab?.id) {
-        await chrome.sidePanel.open({ tabId: tab.id });
-      } else if (tab?.windowId) {
-        await chrome.sidePanel.open({ windowId: tab.windowId });
-      }
-    }
+    const targetUrl = chrome.runtime.getURL("index.html");
+    await chrome.tabs.create({ url: targetUrl, active: true });
   } catch (err) {
-    console.warn("[DeepX] Failed to open side panel on action click:", err);
+    console.warn("[DeepX] Action click fallback notice:", err);
   }
 });
 

@@ -4249,8 +4249,116 @@ async function handleBatchGenerate(payload, progressCallback) {
   };
 }
 
-// Google Flow Music (flowmusic.app) Engine with Persistent Audio Style-Locking
+// Google Flow Music (flowmusic.app) Engine with Persistent Audio Style-Locking & Dual-Engine Studio Controls
 let lastMusicStyleReference = null;
+
+// React Synthetic Event Value Setter Helper (Works across React 16-19 / Next.js)
+function setReactInputValue(el, val) {
+  if (!el) return;
+  el.focus();
+  const proto = Object.getPrototypeOf(el);
+  const desc = Object.getOwnPropertyDescriptor(proto, "value");
+  if (desc && desc.set) {
+    desc.set.call(el, val);
+  } else {
+    el.value = val;
+  }
+  if (el._valueTracker) {
+    try { el._valueTracker.setValue(""); } catch {}
+  }
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: val }));
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+// Ensure active Flow Music session workspace
+async function ensureFlowMusicSession(tabId, forceNew = false) {
+  if (!tabId) return { ok: false, error: "No Flow Music tab available." };
+
+  const sessionInit = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (force) => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+      function clickTarget(el) {
+        if (!el) return;
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          try { el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+        });
+        try { el.click(); } catch (_) {}
+      }
+
+      const checkState = () => {
+        const url = window.location.href;
+        const text = (document.body ? document.body.innerText || "" : "").toLowerCase();
+        const isLanding = text.includes("describe the song you want and google flow music writes") || url.includes("/session?t=true");
+        const needsLogin = text.includes("free to start with a google account") &&
+          !document.querySelector("button[aria-label*='New session' i], a[href*='/session'], button[aria-label*='Toggle compose panel' i]");
+        const hasComposeBtn = !!document.querySelector("button[aria-label*='compose' i], button[aria-label*='Toggle compose panel' i]");
+        const hasPromptInput = !!document.querySelector("input[placeholder*='Something else' i], textarea[aria-label*='sound' i], input[type='text'], textarea");
+        const hasNewSessionBtn = !!document.querySelector("button[aria-label*='New session' i], a[href*='/session']");
+        const isSessionStudio = url.includes("/session/") || hasComposeBtn || (hasPromptInput && !isLanding);
+        return { url, isLanding, needsLogin, hasComposeBtn, hasPromptInput, hasNewSessionBtn, isSessionStudio };
+      };
+
+      let state = checkState();
+
+      // If forceNew requested and already in a session studio, trigger "New session"
+      if (force && state.isSessionStudio) {
+        const newBtn = Array.from(document.querySelectorAll("button, a")).find(b =>
+          /new session|\+ new session/i.test((b.innerText || b.getAttribute("aria-label") || "").trim())
+        );
+        if (newBtn) {
+          clickTarget(newBtn);
+          await sleep(1500);
+          state = checkState();
+        }
+      }
+
+      // If on landing or create song welcome view, trigger "Create a song"
+      if (state.isLanding || !state.isSessionStudio) {
+        const createBtn = Array.from(document.querySelectorAll("button, a")).find(b =>
+          /create a song|create song|start session|start a session|\+ new session|new session/i.test((b.innerText || b.getAttribute("aria-label") || "").trim())
+        );
+        if (createBtn) {
+          clickTarget(createBtn);
+
+          // Poll up to 10 seconds for session studio to mount
+          for (let i = 0; i < 20; i++) {
+            await sleep(500);
+            state = checkState();
+            if (state.isSessionStudio || state.hasPromptInput) break;
+          }
+        }
+      }
+
+      return {
+        ok: state.isSessionStudio || state.hasPromptInput,
+        state,
+        url: window.location.href
+      };
+    },
+    args: [forceNew]
+  }).then(r => r?.[0]?.result).catch(e => ({ ok: false, error: e.message }));
+
+  return sessionInit || { ok: false, error: "Failed to evaluate session state" };
+}
+
+// Explicit Music Session Creation Handler
+async function handleCreateMusicSession(payload = {}) {
+  const tabId = await ensureFlowMusicTab();
+  if (!tabId) {
+    throw new Error("Could not connect to or launch Google Flow Music tab (flowmusic.app).");
+  }
+  const sessionRes = await ensureFlowMusicSession(tabId, true);
+  return {
+    success: sessionRes.ok,
+    platform: "Google Flow Music (flowmusic.app)",
+    sessionUrl: sessionRes.url,
+    state: sessionRes.state,
+    tabId
+  };
+}
 
 async function handleGenerateMusic(payload = {}) {
   const {
@@ -4259,6 +4367,7 @@ async function handleGenerateMusic(payload = {}) {
     lyrics = "",
     genre = "",
     instrumental = false,
+    newSession = false,
     autoDownload = true
   } = payload;
 
@@ -4277,124 +4386,168 @@ async function handleGenerateMusic(payload = {}) {
     throw new Error("Could not connect to or launch Google Flow Music tab (flowmusic.app).");
   }
 
-  // Construct prompt enforcing style harmony
-  let constructedPrompt = (prompt || "").trim();
+  // Ensure active session workspace
+  const sessionStatus = await ensureFlowMusicSession(tabId, !!newSession);
+  if (sessionStatus?.state?.needsLogin) {
+    throw new Error("Google Flow Music (flowmusic.app) requires signing in to your Google Account. Please sign in to flowmusic.app in Chrome/Mises.");
+  }
+
+  // Construct sound prompt enforcing style harmony
+  let soundPrompt = (prompt || "").trim();
   if (activeStyle) {
-    constructedPrompt = `[Style Lock: ${activeStyle.trim()}] ${constructedPrompt}`;
+    soundPrompt = `[Style Lock: ${activeStyle.trim()}] ${soundPrompt}`;
   }
   if (genre) {
-    constructedPrompt = `[Genre: ${genre.trim()}] ${constructedPrompt}`;
-  }
-  if (instrumental) {
-    constructedPrompt = `${constructedPrompt} [Instrumental track, no vocals]`;
-  }
-  if (lyrics) {
-    constructedPrompt = `${constructedPrompt}\n\n[Lyrics]:\n${lyrics.trim()}`;
+    soundPrompt = `[Genre: ${genre.trim()}] ${soundPrompt}`;
   }
 
-  console.log(`[DeepX Flow Music] Submitting prompt to Flow Music: "${constructedPrompt}"...`);
+  console.log(`[DeepX Flow Music] Injecting track prompt: "${soundPrompt}" (Instrumental: ${instrumental}, Lyrics: ${lyrics ? "Yes" : "No"})...`);
 
-  // Inject into Flow Music UI
+  // Execute dual-engine injection in tab (Compose Studio + Chat bar fallback)
   const submitted = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (songPrompt) => {
+    func: async (sPrompt, lText, isInst) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-      // 1. If currently on library or non-session page, trigger "New session"
-      const newSessionBtn = Array.from(document.querySelectorAll("button, a, div[role='button']")).find(b =>
-        /new session|\+ new session|create a song|create song|start session/i.test((b.innerText || b.textContent || b.getAttribute("aria-label") || "").trim())
-      );
-      if (newSessionBtn && !document.querySelector("textarea, [placeholder*='song' i], [placeholder*='lyrics' i]")) {
-        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-          try { newSessionBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
-        });
-        try { newSessionBtn.click(); } catch (_) {}
-        await sleep(1500);
+      function setReactVal(el, val) {
+        if (!el) return;
+        el.focus();
+        const proto = Object.getPrototypeOf(el);
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+          desc.set.call(el, val);
+        } else {
+          el.value = val;
+        }
+        if (el._valueTracker) {
+          try { el._valueTracker.setValue(""); } catch {}
+        }
+        el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: val }));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
       }
 
-      let input = null;
-      for (let i = 0; i < 35; i++) {
-        input = document.querySelector(
-          "textarea[placeholder*='Producer' i], textarea[placeholder*='Ask' i], textarea, " +
-          "input[placeholder*='Producer' i], input[placeholder*='Ask' i], " +
-          "div[contenteditable='true'][placeholder*='Producer' i], div[contenteditable='true'], " +
-          "[placeholder*='song' i], [placeholder*='Describe' i], [placeholder*='lyrics' i], [placeholder*='prompt' i], [role='textbox']"
+      function clickEl(el) {
+        if (!el) return;
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+          try { el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+        });
+        try { el.click(); } catch (_) {}
+      }
+
+      // 1. Strategy A: Native Lyria Compose Studio (full control over Sound, Lyrics & Instrumental)
+      const composeToggle = document.querySelector("button[aria-label*='compose' i], button[aria-label*='Toggle compose panel' i]") ||
+        Array.from(document.querySelectorAll("button")).find(b => /compose/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
+
+      let soundInput = document.querySelector("textarea[aria-label*='Sound description' i], textarea[aria-label*='sound' i]");
+
+      // If sound textarea isn't immediately visible, toggle compose panel open
+      if (!soundInput && composeToggle) {
+        clickEl(composeToggle);
+        await sleep(500);
+        soundInput = document.querySelector("textarea[aria-label*='Sound description' i], textarea[aria-label*='sound' i]");
+      }
+
+      if (soundInput) {
+        setReactVal(soundInput, sPrompt);
+        await sleep(200);
+
+        // Instrumental mode toggle
+        if (isInst) {
+          const instBtn = document.querySelector("button[aria-label*='Toggle instrumental mode' i], [role='switch'][aria-label*='instrumental' i]");
+          if (instBtn) {
+            const checked = instBtn.getAttribute("aria-checked") === "true" || instBtn.getAttribute("data-state") === "checked";
+            if (!checked) {
+              clickEl(instBtn);
+              await sleep(150);
+            }
+          }
+        }
+
+        // Lyrics textarea
+        if (lText && !isInst) {
+          const lyricsInput = document.querySelector("textarea[aria-label*='Lyrics' i], textarea[placeholder*='lyrics' i]");
+          if (lyricsInput) {
+            setReactVal(lyricsInput, lText);
+            await sleep(200);
+          }
+        }
+
+        // Find Generate button
+        let generateBtn = null;
+        for (let i = 0; i < 15; i++) {
+          generateBtn = Array.from(document.querySelectorAll("button")).find(b =>
+            /^\s*generate\s*$/i.test((b.innerText || "").trim()) || /generate/i.test(b.getAttribute("aria-label") || "")
+          );
+          if (generateBtn && !generateBtn.disabled) break;
+          // Blur input to ensure validation runs
+          try { soundInput.blur(); } catch (_) {}
+          await sleep(200);
+        }
+
+        if (generateBtn) {
+          clickEl(generateBtn);
+          return { ok: true, engine: "compose_studio", submittedPrompt: sPrompt, isInstrumental: isInst };
+        }
+      }
+
+      // 2. Strategy B: Producer Chat Prompt Bar (Fallback)
+      const fullPrompt = isInst ? `${sPrompt} [Instrumental track]` : (lText ? `${sPrompt}\n\n[Lyrics]:\n${lText}` : sPrompt);
+      let chatInput = null;
+      for (let i = 0; i < 20; i++) {
+        chatInput = document.querySelector(
+          "input[placeholder*='Something else' i], input[aria-label*='Something else' i], " +
+          "textarea[placeholder*='Producer' i], input[placeholder*='Producer' i], " +
+          "textarea[placeholder*='Describe' i], input[type='text'], textarea, [contenteditable='true']"
         );
-        if (input) break;
+        if (chatInput) break;
         await sleep(200);
       }
 
-      if (!input) {
-        // Fallback: search for any visible editable element
-        const allEditables = Array.from(document.querySelectorAll("textarea, [contenteditable='true'], input:not([type='hidden'])"));
-        input = allEditables.find(el => el.offsetWidth > 50 && el.offsetHeight > 20);
+      if (!chatInput) {
+        return { ok: false, error: "Neither Compose Studio nor Chat input found on Flow Music session." };
       }
 
-      if (!input) return { ok: false, error: "Prompt input element not found on Flow Music." };
-
-      input.scrollIntoView({ block: "center" });
-      input.focus();
-
-      if (input.tagName === "DIV" && input.isContentEditable) {
-        input.innerText = songPrompt;
-        input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: songPrompt }));
-        input.dispatchEvent(new Event("input", { bubbles: true }));
+      if (chatInput.isContentEditable) {
+        chatInput.focus();
+        chatInput.innerText = fullPrompt;
+        chatInput.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: fullPrompt }));
       } else {
-        const proto = Object.getPrototypeOf(input);
-        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set || ((v) => { input.value = v; });
-        setter.call(input, songPrompt);
-        input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: songPrompt }));
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
+        setReactVal(chatInput, fullPrompt);
       }
-      await sleep(300);
+      await sleep(250);
 
-      // Locate submit button in input bar (e.g. cyan circle button with arrow-up in screenshot)
-      const container = input.closest("form, div.relative, div[class*='rounded'], div:has(> textarea), div:has(> input)") || input.parentElement?.parentElement || document;
-      const allBtns = Array.from(container.querySelectorAll("button"));
+      const form = chatInput.closest("form");
+      const container = form || chatInput.parentElement?.parentElement || document;
+      const submitBtn = Array.from(container.querySelectorAll("button")).find(b =>
+        /send|submit/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()) ||
+        b.type === "submit" ||
+        b.querySelector("svg.lucide-arrow-up, svg[class*='arrow-up']")
+      );
 
-      // Priority 1: Arrow-up or submit icon button (lucide-arrow-up / arrow up icon)
-      let submitBtn = allBtns.find(b => {
-        const aria = (b.getAttribute("aria-label") || "").toLowerCase();
-        const svg = b.querySelector("svg");
-        const svgClass = svg ? (svg.getAttribute("class") || "") : "";
-        return /arrow-up|lucide-arrow-up|send|submit/i.test(svgClass) || /send|submit|arrow.*up/i.test(aria);
-      });
-
-      // Priority 2: Styled cyan/colored circular button in the input bar
-      if (!submitBtn) {
-        submitBtn = allBtns.find(b => {
-          const cls = b.getAttribute("class") || "";
-          return /bg-cyan|bg-primary|rounded-full/i.test(cls);
-        });
-      }
-
-      // Priority 3: The last button in the input container
-      if (!submitBtn && allBtns.length > 0) {
-        submitBtn = allBtns[allBtns.length - 1];
-      }
-
-      if (submitBtn) {
-        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-          try { submitBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
-        });
-        try { submitBtn.click(); } catch (_) {}
+      if (submitBtn && !submitBtn.disabled) {
+        clickEl(submitBtn);
       } else {
-        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+        chatInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+        if (form) {
+          try { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); } catch (_) {}
+        }
       }
 
-      return { ok: true, submittedPrompt: songPrompt };
+      return { ok: true, engine: "producer_chat", submittedPrompt: fullPrompt };
     },
-    args: [constructedPrompt]
+    args: [soundPrompt, lyrics.trim(), !!instrumental]
   }).then(r => r?.[0]?.result).catch(e => ({ ok: false, error: e.message }));
 
   if (!submitted?.ok) {
-    throw new Error("Failed to submit song prompt to Flow Music: " + (submitted?.error || "unknown"));
+    throw new Error("Failed to submit track prompt to Flow Music: " + (submitted?.error || "unknown"));
   }
 
-  // Poll for track generation in session (up to 90s, polling every 2s)
+  console.log(`[DeepX Flow Music] Prompt submitted via ${submitted.engine}. Waiting for Lyria generation...`);
+
+  // Poll for track completion (up to 120s, polling every 2s)
   let audioResult = null;
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000));
     const probe = await chrome.scripting.executeScript({
       target: { tabId },
@@ -4402,17 +4555,19 @@ async function handleGenerateMusic(payload = {}) {
         const audios = Array.from(document.querySelectorAll("audio"));
         const validAudio = audios.find(a => a.src && a.src.length > 5 && !a.src.startsWith("blob:null"));
         const downloadLinks = Array.from(document.querySelectorAll("a[href*='.mp3'], a[href*='.wav'], a[download]"));
-        const playBtns = Array.from(document.querySelectorAll("button:has(svg.lucide-play), button[aria-label*='Play' i]"));
-        const songCards = Array.from(document.querySelectorAll("[data-track], [data-song], .song-card, .track-item"));
+        const playBtns = Array.from(document.querySelectorAll("button:has(svg.lucide-play), button[aria-label*='Play' i], button.play-button"));
+        const wavesurfers = Array.from(document.querySelectorAll("canvas, div[class*='wavesurfer']"));
+        const songCards = Array.from(document.querySelectorAll("[data-track], [data-song], .song-card, .track-item, [class*='track']"));
         const titles = Array.from(document.querySelectorAll("h2, h3, h4, .font-semibold, .font-bold, [data-song-title]"))
           .map(el => (el.innerText || "").trim())
-          .filter(t => t.length > 2 && !/new session|flow music|what do you want|producer|ask producer/i.test(t));
+          .filter(t => t.length > 2 && !/new session|flow music|what do you want|producer|ask producer|create song|something else/i.test(t));
         const isGenerating = /generating|creating|producing|rendering|in queue|queued/i.test(document.body?.innerText || "");
 
         return {
           hasAudio: !!validAudio,
           audioUrl: validAudio?.src || downloadLinks[0]?.href || null,
           hasPlayButton: playBtns.length > 0,
+          hasWavesurfer: wavesurfers.length > 0,
           songCount: songCards.length,
           title: titles[0] || null,
           isGenerating,
@@ -4421,7 +4576,7 @@ async function handleGenerateMusic(payload = {}) {
       }
     }).then(r => r?.[0]?.result).catch(() => null);
 
-    if (probe?.hasAudio || probe?.hasPlayButton || (probe?.title && !probe?.isGenerating)) {
+    if (probe?.hasAudio || probe?.hasPlayButton || probe?.hasWavesurfer || (probe?.title && !probe?.isGenerating)) {
       audioResult = probe;
       break;
     }
@@ -4439,13 +4594,32 @@ async function handleGenerateMusic(payload = {}) {
   return {
     success: true,
     platform: "Google Flow Music (flowmusic.app)",
-    prompt: constructedPrompt,
+    engine: submitted.engine,
+    prompt: soundPrompt,
     styleLocked: !!activeStyle,
     styleReference: activeStyle || null,
     audioUrl: audioResult?.audioUrl || "https://www.flowmusic.app/session",
     title: audioResult?.title || "Flow Music Track",
+    isGenerating: !!audioResult?.isGenerating,
     downloaded: downloadStatus || null
   };
+}
+
+// WebSocket Connection Mutex & Safe Transmission Engine
+let isConnecting = false;
+
+function safeSend(targetWs, msgObj) {
+  if (!targetWs || targetWs.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  try {
+    const payload = typeof msgObj === "string" ? msgObj : JSON.stringify(msgObj);
+    targetWs.send(payload);
+    return true;
+  } catch (err) {
+    console.warn("[DeepX Flow WS] safeSend caught error:", err?.message || err);
+    return false;
+  }
 }
 
 // WebSocket Connection to DeepX Antigravity Server
@@ -4464,240 +4638,272 @@ async function connectToAntigravityServer(force = false) {
     return;
   }
 
+  if (isConnecting) {
+    return;
+  }
+
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
 
-  const targetUrl = await getTargetWsUrl();
-  if (!targetUrl) {
-    // Probing detected device is offline or network is switching - schedule quiet retry without throwing unhandled WebSocket errors
+  isConnecting = true;
+
+  try {
+    const targetUrl = await getTargetWsUrl();
+    if (!targetUrl) {
+      chrome.runtime.sendMessage({
+        type: "MCP_CONNECTION_STATE_CHANGED",
+        connected: false,
+        connecting: false,
+        manuallyDisconnected: false,
+        host: null
+      }).catch(() => {});
+      scheduleReconnect();
+      return;
+    }
+
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    console.log(`[DeepX Flow] Connecting to verified endpoint ${targetUrl}...`);
+
     chrome.runtime.sendMessage({
       type: "MCP_CONNECTION_STATE_CHANGED",
       connected: false,
-      connecting: false,
-      manuallyDisconnected: false,
-      host: null
-    }).catch(() => {});
-    scheduleReconnect();
-    return;
-  }
-
-  console.log(`[DeepX Flow] Connecting to verified endpoint ${targetUrl}...`);
-
-  chrome.runtime.sendMessage({
-    type: "MCP_CONNECTION_STATE_CHANGED",
-    connected: false,
-    connecting: true,
-    manuallyDisconnected: false,
-    host: targetUrl
-  }).catch(() => {});
-
-  let connectWatchdog = null;
-  try {
-    ws = new WebSocket(targetUrl);
-  } catch (err) {
-    scheduleReconnect();
-    return;
-  }
-
-  const thisWs = ws;
-  connectWatchdog = setTimeout(() => {
-    if (ws === thisWs && ws.readyState === WebSocket.CONNECTING) {
-      try { ws.close(); } catch {}
-      currentHostIndex++;
-      scheduleReconnect();
-    }
-  }, 20000);
-
-  ws.onopen = async () => {
-    if (connectWatchdog) clearTimeout(connectWatchdog);
-    activeConnectedHost = targetUrl;
-    reconnectAttempts = 0;
-    console.log(`%c[DeepX Flow]%c Connected to ${targetUrl}!`, "color:#00e5ff;font-weight:bold;", "color:inherit;");
-    chrome.storage.local.set({ deepxConnected: true, connectedHost: targetUrl });
-
-    // Collect initial profile and tab status
-    let currentCtx = null;
-    try {
-      const tabId = await findFlowTab();
-      if (tabId) currentCtx = await extractFlowTabContext(tabId);
-    } catch {}
-
-    const acc = currentCtx?.account || lastKnownAccount || { isLoggedIn: true, accountName: "Google Flow User", email: "flow-user@google.com", plan: "Standard" };
-    const tabOpen = !!(await findFlowTab());
-    const musicTabOpen = !!(await findFlowMusicTab());
-    const pid = currentCtx?.projectId || lastKnownProjectId;
-    const isReady = isEffectiveActive() && isExtensionUnlocked && (tabOpen || musicTabOpen);
-
-    ws.send(JSON.stringify({
-      type: "HELLO",
-      client: "deepx-flow-extension",
-      version: chrome.runtime?.getManifest?.()?.version || "1.3.6",
-      account: acc,
-      flowTabOpen: tabOpen,
-      flowMusicTabOpen: musicTabOpen,
-      projectId: pid,
-      projectName: currentCtx?.projectName || lastKnownProjectName,
-      isUnlocked: isExtensionUnlocked,
-      ready: isReady,
-      connectionState: !isExtensionUnlocked ? "locked" : ((tabOpen || musicTabOpen) ? "ready" : "tab_not_found")
-    }));
-
-    // Start 12s Keep-Alive Heartbeat over WebSocket to prevent MV3 service worker suspension
-    if (wsHeartbeatInterval) clearInterval(wsHeartbeatInterval);
-    wsHeartbeatInterval = setInterval(async () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try {
-          const tabId = await findFlowTab();
-          let ctx = null;
-          if (tabId) ctx = await extractFlowTabContext(tabId).catch(() => null);
-          const currentAcc = ctx?.account || lastKnownAccount;
-          const hasTab = !!tabId;
-          const currentPid = ctx?.projectId || lastKnownProjectId;
-          const readyState = isEffectiveActive() && !!(currentAcc?.isLoggedIn) && isExtensionUnlocked;
-          ws.send(JSON.stringify({
-            type: "HEARTBEAT",
-            client: "deepx-flow-extension",
-            account: currentAcc,
-            flowTabOpen: hasTab,
-            projectId: currentPid,
-            projectName: ctx?.projectName || lastKnownProjectName,
-            isUnlocked: isExtensionUnlocked,
-            ready: readyState,
-            connectionState: !isExtensionUnlocked ? "locked" : (!hasTab ? "tab_not_found" : (readyState ? "ready" : "needs_login"))
-          }));
-        } catch {}
-      }
-    }, 12000);
-
-    chrome.runtime.sendMessage({
-      type: "MCP_CONNECTION_STATE_CHANGED",
-      connected: true,
-      connecting: false,
+      connecting: true,
       manuallyDisconnected: false,
       host: targetUrl
     }).catch(() => {});
-  };
 
-  ws.onmessage = async (event) => {
+    let connectWatchdog = null;
+    let localWs = null;
     try {
-      const data = JSON.parse(event.data);
-      const { id, command, payload } = data;
-      if (!id || !command) return;
+      localWs = new WebSocket(targetUrl);
+      ws = localWs;
+    } catch (err) {
+      scheduleReconnect();
+      return;
+    }
 
-      // Antigravity AI Agent is actively communicating through the bridge - record timestamp
-      lastAgentActivityTime = Date.now();
-      chrome.storage.local.set({ lastAgentActivityTime });
+    const thisWs = localWs;
+    connectWatchdog = setTimeout(() => {
+      if (ws === thisWs && ws.readyState === WebSocket.CONNECTING) {
+        try { ws.close(); } catch {}
+        currentHostIndex++;
+        scheduleReconnect();
+      }
+    }, 20000);
 
+    thisWs.onopen = async () => {
+      if (connectWatchdog) clearTimeout(connectWatchdog);
+      if (thisWs !== ws || thisWs.readyState !== WebSocket.OPEN) return;
+
+      activeConnectedHost = targetUrl;
+      reconnectAttempts = 0;
+      console.log(`%c[DeepX Flow]%c Connected to ${targetUrl}!`, "color:#00e5ff;font-weight:bold;", "color:inherit;");
+      chrome.storage.local.set({ deepxConnected: true, connectedHost: targetUrl });
+
+      // Collect initial profile and tab status
+      let currentCtx = null;
       try {
-        let result;
-        switch (command) {
-          case "status": {
+        const tabId = await findFlowTab();
+        if (tabId) currentCtx = await extractFlowTabContext(tabId);
+      } catch {}
+
+      if (thisWs !== ws || thisWs.readyState !== WebSocket.OPEN) return;
+
+      const acc = currentCtx?.account || lastKnownAccount || { isLoggedIn: true, accountName: "Google Flow User", email: "flow-user@google.com", plan: "Standard" };
+      const tabOpen = !!(await findFlowTab());
+      const musicTabOpen = !!(await findFlowMusicTab());
+      const pid = currentCtx?.projectId || lastKnownProjectId;
+      const isReady = isEffectiveActive() && isExtensionUnlocked && (tabOpen || musicTabOpen);
+
+      if (thisWs !== ws || thisWs.readyState !== WebSocket.OPEN) return;
+
+      safeSend(thisWs, {
+        type: "HELLO",
+        client: "deepx-flow-extension",
+        version: chrome.runtime?.getManifest?.()?.version || "1.3.7",
+        account: acc,
+        flowTabOpen: tabOpen,
+        flowMusicTabOpen: musicTabOpen,
+        projectId: pid,
+        projectName: currentCtx?.projectName || lastKnownProjectName,
+        isUnlocked: isExtensionUnlocked,
+        ready: isReady,
+        connectionState: !isExtensionUnlocked ? "locked" : ((tabOpen || musicTabOpen) ? "ready" : "tab_not_found")
+      });
+
+      // Start 12s Keep-Alive Heartbeat over WebSocket to prevent MV3 service worker suspension
+      if (wsHeartbeatInterval) clearInterval(wsHeartbeatInterval);
+      wsHeartbeatInterval = setInterval(async () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try {
             const tabId = await findFlowTab();
-            let token = globalCapturedToken;
-            let projectId = lastKnownProjectId;
-            let accountInfo = lastKnownAccount;
-            let pageUrl = currentActiveTabUrl || "";
+            const musicTabId = await findFlowMusicTab();
+            let ctx = null;
+            if (tabId) ctx = await extractFlowTabContext(tabId).catch(() => null);
+            const currentAcc = ctx?.account || lastKnownAccount;
+            const hasTab = !!tabId || !!musicTabId;
+            const currentPid = ctx?.projectId || lastKnownProjectId;
+            const readyState = isEffectiveActive() && isExtensionUnlocked && hasTab;
+            safeSend(ws, {
+              type: "HEARTBEAT",
+              client: "deepx-flow-extension",
+              account: currentAcc,
+              flowTabOpen: !!tabId,
+              flowMusicTabOpen: !!musicTabId,
+              projectId: currentPid,
+              projectName: ctx?.projectName || lastKnownProjectName,
+              isUnlocked: isExtensionUnlocked,
+              ready: readyState,
+              connectionState: !isExtensionUnlocked ? "locked" : (!hasTab ? "tab_not_found" : (readyState ? "ready" : "needs_login"))
+            });
+          } catch {}
+        }
+      }, 12000);
 
-            if (tabId) {
-              try {
-                const tab = await chrome.tabs.get(tabId);
-                if (tab?.url) {
-                  pageUrl = tab.url;
-                  const pFromTab = extractProjectId(tab.url);
-                  if (pFromTab) {
-                    projectId = pFromTab;
-                    lastKnownProjectId = pFromTab;
-                  }
-                }
-              } catch {}
+      chrome.runtime.sendMessage({
+        type: "MCP_CONNECTION_STATE_CHANGED",
+        connected: true,
+        connecting: false,
+        manuallyDisconnected: false,
+        host: targetUrl
+      }).catch(() => {});
+    };
 
-              try {
-                const ctx = await extractFlowTabContext(tabId);
-                if (ctx) {
-                  if (ctx.projectId) {
-                    projectId = ctx.projectId;
-                    lastKnownProjectId = ctx.projectId;
+    thisWs.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const { id, command, payload } = data;
+        if (!id || !command) return;
+
+        // Antigravity AI Agent is actively communicating through the bridge - record timestamp
+        lastAgentActivityTime = Date.now();
+        chrome.storage.local.set({ lastAgentActivityTime });
+
+        try {
+          let result;
+          switch (command) {
+            case "status": {
+              const tabId = await findFlowTab();
+              const musicTabId = await findFlowMusicTab();
+              let token = globalCapturedToken;
+              let projectId = lastKnownProjectId;
+              let accountInfo = lastKnownAccount;
+              let pageUrl = currentActiveTabUrl || "";
+
+              if (tabId) {
+                try {
+                  const tab = await chrome.tabs.get(tabId);
+                  if (tab?.url) {
+                    pageUrl = tab.url;
+                    const pFromTab = extractProjectId(tab.url);
+                    if (pFromTab) {
+                      projectId = pFromTab;
+                      lastKnownProjectId = pFromTab;
+                    }
                   }
-                  if (ctx.account) accountInfo = ctx.account;
-                  if (ctx.url) pageUrl = ctx.url;
+                } catch {}
+
+                try {
+                  const ctx = await extractFlowTabContext(tabId);
+                  if (ctx) {
+                    if (ctx.projectId) {
+                      projectId = ctx.projectId;
+                      lastKnownProjectId = ctx.projectId;
+                    }
+                    if (ctx.account) accountInfo = ctx.account;
+                    if (ctx.url) pageUrl = ctx.url;
+                  }
+                } catch (e) {
+                  console.warn("[DeepX] extractFlowTabContext error:", e);
                 }
-              } catch (e) {
-                console.warn("[DeepX] extractFlowTabContext error:", e);
+              } else if (musicTabId) {
+                try {
+                  const tab = await chrome.tabs.get(musicTabId);
+                  if (tab?.url) pageUrl = tab.url;
+                } catch {}
               }
-            }
 
-            // Account switch detection
-            if (accountInfo?.email) {
-              if (lastKnownAccountEmail && accountInfo.email !== lastKnownAccountEmail) {
-                console.log(`[DeepX] Detected account switch: ${lastKnownAccountEmail} -> ${accountInfo.email}`);
+              // Account switch detection
+              if (accountInfo?.email) {
+                if (lastKnownAccountEmail && accountInfo.email !== lastKnownAccountEmail) {
+                  console.log(`[DeepX] Detected account switch: ${lastKnownAccountEmail} -> ${accountInfo.email}`);
+                  token = null;
+                  globalCapturedToken = null;
+                  chrome.storage.local.remove(["deepxAuthToken"]);
+                }
+                lastKnownAccountEmail = accountInfo.email;
+                lastKnownAccount = accountInfo;
+              } else if (accountInfo && !accountInfo.isLoggedIn) {
                 token = null;
                 globalCapturedToken = null;
+                lastKnownAccount = null;
                 chrome.storage.local.remove(["deepxAuthToken"]);
               }
-              lastKnownAccountEmail = accountInfo.email;
-              lastKnownAccount = accountInfo;
-            } else if (accountInfo && !accountInfo.isLoggedIn) {
-              token = null;
-              globalCapturedToken = null;
-              lastKnownAccount = null;
-              chrome.storage.local.remove(["deepxAuthToken"]);
+
+              // Classify real connectionState
+              let connectionState = "ready";
+              let stateReason = "Connected to Google Flow and ready to generate.";
+
+              if (isMcpManuallyDisconnected) {
+                connectionState = "disconnected";
+                stateReason = "DeepX MCP Bridge is manually disconnected. Click Connect MCP in the extension to reconnect.";
+              } else if (!isExtensionUnlocked) {
+                connectionState = "locked";
+                stateReason = "DeepX is disabled.";
+              } else if (isExtensionEnabledByUser === false) {
+                connectionState = "standby";
+                stateReason = "DeepX Extension is manually turned OFF. Click Turn ON to resume.";
+              } else if (!tabId && !musicTabId) {
+                connectionState = "tab_not_found";
+                stateReason = "No Google Flow or Flow Music tab open. Open https://flow.google.com or https://www.flowmusic.app in Chrome.";
+              } else if (!tabId && musicTabId) {
+                connectionState = "ready";
+                const userLabel = accountInfo?.email || accountInfo?.accountName || "Google Account";
+                stateReason = `Connected to Google Flow Music (flowmusic.app) with ${userLabel}. Ready to create sessions and songs.`;
+              } else if (!accountInfo || !accountInfo.isLoggedIn) {
+                connectionState = "needs_login";
+                stateReason = "Google Flow tab is open, but you are not logged in. Please sign in to your Google Account.";
+              } else if (!projectId) {
+                // User is logged in on Google Flow dashboard / gallery.
+                // Mark as ready because ensureOnProjectCanvas automatically opens or creates a project on demand!
+                connectionState = "ready";
+                const userLabel = accountInfo?.email || accountInfo?.accountName || "Google Account";
+                stateReason = `Connected to Google Flow (${userLabel}) and ready to generate. Project canvas auto-launches on demand.`;
+              }
+
+              const isReady = isExtensionUnlocked && connectionState === "ready" && !isMcpManuallyDisconnected;
+
+              result = {
+                connected: isReady,
+                ready: isReady,
+                isUnlocked: isExtensionUnlocked,
+                connectionState,
+                stateReason,
+                flowActive: isEffectiveActive(),
+                isExtensionEnabled: isExtensionEnabledByUser !== false,
+                isFlowTabActive: isFlowTabPresent,
+                currentDomain: currentActiveTabUrl ? (()=>{ try { return new URL(currentActiveTabUrl).hostname; } catch { return ""; } })() : "",
+                flowTabOpen: !!tabId,
+                flowMusicTabOpen: !!musicTabId,
+                musicTabId: musicTabId || null,
+                flowTabUrl: pageUrl,
+                hasToken: !!token,
+                account: accountInfo || {
+                  isLoggedIn: true,
+                  accountName: "Google Flow User",
+                  email: "flow-user@google.com",
+                  plan: "Standard"
+                },
+                projectId: projectId || null,
+                projectName: lastKnownProjectName || null,
+                activeBatches: activeBatches.size
+              };
+              break;
             }
-
-            // Classify real connectionState
-            let connectionState = "ready";
-            let stateReason = "Connected to Google Flow and ready to generate.";
-
-            if (isMcpManuallyDisconnected) {
-              connectionState = "disconnected";
-              stateReason = "DeepX MCP Bridge is manually disconnected. Click Connect MCP in the extension to reconnect.";
-            } else if (!isExtensionUnlocked) {
-              connectionState = "locked";
-              stateReason = "DeepX is disabled.";
-            } else if (isExtensionEnabledByUser === false) {
-              connectionState = "standby";
-              stateReason = "DeepX Extension is manually turned OFF. Click Turn ON to resume.";
-            } else if (!tabId) {
-              connectionState = "tab_not_found";
-              stateReason = "No Google Flow tab open. Open https://flow.google.com in Chrome.";
-            } else if (!accountInfo || !accountInfo.isLoggedIn) {
-              connectionState = "needs_login";
-              stateReason = "Google Flow tab is open, but you are not logged in. Please sign in to your Google Account.";
-            } else if (!projectId) {
-              // User is logged in on Google Flow dashboard / gallery.
-              // Mark as ready because ensureOnProjectCanvas automatically opens or creates a project on demand!
-              connectionState = "ready";
-              const userLabel = accountInfo?.email || accountInfo?.accountName || "Google Account";
-              stateReason = `Connected to Google Flow (${userLabel}) and ready to generate. Project canvas auto-launches on demand.`;
-            }
-
-            const isReady = isExtensionUnlocked && connectionState === "ready" && !isMcpManuallyDisconnected;
-
-            result = {
-              connected: isReady,
-              ready: isReady,
-              isUnlocked: isExtensionUnlocked,
-              connectionState,
-              stateReason,
-              flowActive: isEffectiveActive(),
-              isExtensionEnabled: isExtensionEnabledByUser !== false,
-              isFlowTabActive: isFlowTabPresent,
-              currentDomain: currentActiveTabUrl ? (()=>{ try { return new URL(currentActiveTabUrl).hostname; } catch { return ""; } })() : "",
-              flowTabOpen: !!tabId,
-              flowTabUrl: pageUrl,
-              hasToken: !!token,
-              account: accountInfo || {
-                isLoggedIn: false,
-                accountName: null,
-                email: null,
-                plan: "None"
-              },
-              projectId: projectId || null,
-              projectName: lastKnownProjectName || null,
-              activeBatches: activeBatches.size
-            };
-            break;
-          }
           case "set_extension_active": {
             isExtensionEnabledByUser = !!payload.active;
             await chrome.storage.local.set({ isExtensionEnabledByUser });
@@ -4815,6 +5021,10 @@ async function connectToAntigravityServer(force = false) {
           }
           case "generate_music": {
             result = await handleGenerateMusic(payload);
+            break;
+          }
+          case "create_music_session": {
+            result = await handleCreateMusicSession(payload);
             break;
           }
           case "query_flow_music": {
@@ -5069,17 +5279,17 @@ async function connectToAntigravityServer(force = false) {
             throw new Error("Unknown DeepX command: " + command);
         }
 
-        ws.send(JSON.stringify({ id, success: true, result }));
+        safeSend(thisWs, { id, success: true, result });
       } catch (err) {
         console.warn("[DeepX Handled Command Error]", err?.message || err);
-        try { ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ id, success: false, error: err.message || String(err) })); } catch {}
+        safeSend(thisWs, { id, success: false, error: err.message || String(err) });
       }
     } catch (parseErr) {
       console.warn("[DeepX Flow] Malformed message ignored:", parseErr?.message || parseErr);
     }
   };
 
-  ws.onclose = () => {
+  thisWs.onclose = () => {
     if (connectWatchdog) clearTimeout(connectWatchdog);
     if (thisWs !== ws && ws) return; // stale socket, a newer one is active
     if (wsHeartbeatInterval) {
@@ -5100,10 +5310,13 @@ async function connectToAntigravityServer(force = false) {
     }
   };
 
-  ws.onerror = () => {
+  thisWs.onerror = () => {
     if (connectWatchdog) clearTimeout(connectWatchdog);
-    try { ws.close(); } catch {}
+    try { thisWs.close(); } catch {}
   };
+  } finally {
+    isConnecting = false;
+  }
 }
 
 let reconnectAttempts = 0;
@@ -5133,7 +5346,7 @@ async function disconnectFromAntigravityServer() {
   if (ws) {
     try {
       try {
-        ws.send(JSON.stringify({ type: "CLIENT_DISCONNECT", client: "deepx-flow-extension" }));
+        safeSend(ws, { type: "CLIENT_DISCONNECT", client: "deepx-flow-extension" });
       } catch {}
       ws.onclose = null; // Prevent onclose from scheduling reconnect
       ws.onerror = null;
@@ -5252,20 +5465,22 @@ function updateBadge() {
 async function updateActiveTabState() {
   try {
     const tabId = await findFlowTab();
-    if (!tabId) {
+    const musicTabId = await findFlowMusicTab();
+    if (!tabId && !musicTabId) {
       isFlowTabPresent = false;
       currentActiveTabUrl = "";
       // Keep lastKnownProjectId and lastKnownProjectName in storage across momentary focus shifts
     } else {
       isFlowTabPresent = true;
-      if (!isMcpManuallyDisconnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
-        connectToAntigravityServer();
+      if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
+        connectToAntigravityServer(false);
       }
+      const effectiveId = tabId || musicTabId;
       try {
-        const tab = await chrome.tabs.get(tabId);
-        currentActiveTabUrl = tab?.url || "https://flow.google.com";
+        const tab = await chrome.tabs.get(effectiveId);
+        currentActiveTabUrl = tab?.url || (tabId ? "https://flow.google.com" : "https://www.flowmusic.app");
       } catch {
-        currentActiveTabUrl = "https://flow.google.com";
+        currentActiveTabUrl = tabId ? "https://flow.google.com" : "https://www.flowmusic.app";
       }
 
       // Real-time project ID extraction directly from tab URL (fast & 100% reliable)
@@ -5299,21 +5514,21 @@ async function updateActiveTabState() {
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
   updateActiveTabState();
-  if (!isMcpManuallyDisconnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
+  if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
     connectToAntigravityServer(false);
   }
 });
 if (chrome.windows?.onFocusChanged) {
   chrome.windows.onFocusChanged.addListener((winId) => {
     if (winId !== chrome.windows.WINDOW_ID_NONE) {
-      if (!isMcpManuallyDisconnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
+      if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
         connectToAntigravityServer(false);
       }
     }
   });
 }
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (tab.url?.includes("flow.google.com") || tab.url?.includes("labs.google") || changeInfo.url) {
+  if (tab.url?.includes("flow.google.com") || tab.url?.includes("labs.google") || tab.url?.includes("flowmusic.app") || changeInfo.url) {
     updateActiveTabState();
   }
 });
@@ -5324,7 +5539,7 @@ updateActiveTabState();
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "deepx_keepalive") {
     port.onMessage.addListener(() => {
-      if (!isMcpManuallyDisconnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
+      if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
         connectToAntigravityServer(false);
       }
     });
@@ -5336,7 +5551,7 @@ try {
   chrome.alarms.create("deepx:heartbeat", { periodInMinutes: 0.3 });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === "deepx:heartbeat") {
-      if (!isMcpManuallyDisconnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
+      if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
         connectToAntigravityServer(false);
       }
     }
@@ -5346,7 +5561,7 @@ try {
 // Start connection on service worker startup if not manually disconnected
 chrome.storage.local.get({ isMcpManuallyDisconnected: false }, (res) => {
   isMcpManuallyDisconnected = !!res.isMcpManuallyDisconnected;
-  if (!isMcpManuallyDisconnected) {
+  if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
     connectToAntigravityServer(false);
   } else {
     console.log("[DeepX Flow] MCP manually disconnected by user, skipping startup auto-connect.");
@@ -5355,7 +5570,7 @@ chrome.storage.local.get({ isMcpManuallyDisconnected: false }, (res) => {
 
 // Handle messages from Extension Popup / Side Panel / Content Scripts
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!isMcpManuallyDisconnected && (!ws || ws.readyState !== WebSocket.OPEN)) {
+  if (!isMcpManuallyDisconnected && !isConnecting && (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING))) {
     connectToAntigravityServer(false);
   }
 
@@ -5598,6 +5813,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const result = await handleGenerateMusic(msg.payload || {});
+        sendResponse({ success: true, result });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === "CREATE_MUSIC_SESSION") {
+    (async () => {
+      try {
+        const result = await handleCreateMusicSession(msg.payload || {});
         sendResponse({ success: true, result });
       } catch (e) {
         sendResponse({ success: false, error: e.message });

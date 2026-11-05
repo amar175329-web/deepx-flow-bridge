@@ -26,6 +26,11 @@
         "default": false,
         "description": "If true, generates an instrumental background track without vocals."
       },
+      "new_session": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, creates a fresh new Flow Music session before submitting the song prompt."
+      },
       "auto_download": {
         "type": "boolean",
         "default": true,

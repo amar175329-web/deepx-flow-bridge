@@ -269,6 +269,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Start New Song Session on Google Flow Music
+  const linkNewMusicSession = document.getElementById("linkNewMusicSession");
+  if (linkNewMusicSession) {
+    linkNewMusicSession.addEventListener("click", (e) => {
+      e.preventDefault();
+      showToast("Creating new Flow Music session...");
+      chrome.runtime.sendMessage({ type: "CREATE_MUSIC_SESSION" }, (res) => {
+        if (res?.success) {
+          showToast("New Song Session Created! ✨");
+        } else {
+          showToast("Could not create session: " + (res?.error || "Error"));
+        }
+        updateStatus();
+      });
+    });
+  }
+
   // Save custom host
   btnSaveHost.addEventListener("click", () => {
     const host = customHostInput.value.trim();

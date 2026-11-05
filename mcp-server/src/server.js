@@ -991,6 +991,7 @@ server.tool(
     lyrics: z.string().optional().describe("Custom lyrics to sing. If omitted, Google Flow Music writes lyrics automatically."),
     genre: z.string().optional().describe("Musical genre (e.g. 'Ambient', 'Hip Hop', 'Synthwave', 'Indian Classical', 'Cinematic', 'Acoustic Pop')."),
     instrumental: z.boolean().default(false).describe("If true, generates an instrumental background track without vocals."),
+    new_session: z.boolean().default(false).describe("If true, starts a fresh song session workspace before generating."),
     auto_download: z.boolean().default(true).describe("If true, automatically downloads the finished song file.")
   },
   async (args) => {
@@ -1003,10 +1004,41 @@ server.tool(
         lyrics: args.lyrics || "",
         genre: args.genre || "",
         instrumental: !!args.instrumental,
+        newSession: !!args.new_session,
         autoDownload: args.auto_download !== false
       },
       180000
     );
+    return textResponse(JSON.stringify(res, null, 2));
+  }
+);
+
+// 20. deepx_create_music_session
+server.tool(
+  "deepx_create_music_session",
+  "Create and open a fresh song session workspace on Google Flow Music (flowmusic.app). Focuses or opens the Flow Music tab, initializes a brand-new session studio, and returns active session URL and ready state.",
+  {
+    force: z.boolean().default(true).describe("Whether to force start a brand new session even if one is already open.")
+  },
+  async (args) => {
+    await ensureBridgeReady();
+    const res = await bridge.sendCommand(
+      "create_music_session",
+      { force: args.force !== false },
+      60000
+    );
+    return textResponse(JSON.stringify(res, null, 2));
+  }
+);
+
+// 21. deepx_query_flow_music
+server.tool(
+  "deepx_query_flow_music",
+  "Query and inspect Google Flow Music (flowmusic.app) live tab state, active session URL, inputs, buttons, audio elements, and generation progress.",
+  {},
+  async () => {
+    await ensureBridgeReady();
+    const res = await bridge.sendCommand("query_flow_music", {}, 15000);
     return textResponse(JSON.stringify(res, null, 2));
   }
 );

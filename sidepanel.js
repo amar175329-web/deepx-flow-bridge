@@ -787,6 +787,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const spBtnNewMusicSession = document.getElementById("spBtnNewMusicSession");
+  if (spBtnNewMusicSession) {
+    spBtnNewMusicSession.addEventListener("click", () => {
+      showToast("Starting new session on Google Flow Music...");
+      chrome.runtime.sendMessage({ type: "CREATE_MUSIC_SESSION" }, (response) => {
+        if (response?.success) {
+          showToast("New Flow Music session created! ✨");
+          log(`[Flow Music] New session active at: ${response.result?.sessionUrl || "flowmusic.app"}`, "success");
+        } else {
+          showToast("Could not create session: " + (response?.error || "Error"));
+        }
+        updateStatus();
+      });
+    });
+  }
+
   if (spBtnOpenFlowMusic) {
     spBtnOpenFlowMusic.addEventListener("click", () => {
       chrome.runtime.sendMessage({ type: "SWITCH_TO_FLOW_MUSIC" }, () => {

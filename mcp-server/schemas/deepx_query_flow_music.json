@@ -1,0 +1,10 @@
+{
+  "name": "deepx_query_flow_music",
+  "description": "Inspect the active Google Flow Music session state (tracks generated, active audio waveforms, title, play state, and current download URLs).",
+  "parameters": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

@@ -204,7 +204,7 @@ async function ensureFlowMusicTab() {
       const tab = await chrome.tabs.get(tabId);
       if (tab) {
         if (!tab.url?.includes("/session")) {
-          await chrome.tabs.update(tabId, { url: "https://www.flowmusic.app/session", active: true }).catch(() => {});
+          await chrome.tabs.update(tabId, { url: "https://www.flowmusic.app/session?t=true", active: true }).catch(() => {});
           await waitTabLoaded(tabId);
         } else {
           await chrome.tabs.update(tabId, { active: true }).catch(() => {});
@@ -213,7 +213,7 @@ async function ensureFlowMusicTab() {
       }
     } catch {}
   }
-  const newTab = await chrome.tabs.create({ url: "https://www.flowmusic.app/session", active: true });
+  const newTab = await chrome.tabs.create({ url: "https://www.flowmusic.app/session?t=true", active: true });
   await waitTabLoaded(newTab.id);
   activeFlowMusicTabId = newTab.id;
   try { await ensureContentScriptsInjected(newTab.id); } catch {}
@@ -4275,6 +4275,14 @@ function setReactInputValue(el, val) {
 async function ensureFlowMusicSession(tabId, forceNew = false) {
   if (!tabId) return { ok: false, error: "No Flow Music tab available." };
 
+  if (forceNew) {
+    try {
+      await chrome.tabs.update(tabId, { url: "https://www.flowmusic.app/session?t=true", active: true });
+      await waitTabLoaded(tabId);
+      await new Promise(r => setTimeout(r, 600));
+    } catch (_) {}
+  }
+
   const sessionInit = await chrome.scripting.executeScript({
     target: { tabId },
     func: async (force) => {
@@ -4282,7 +4290,7 @@ async function ensureFlowMusicSession(tabId, forceNew = false) {
 
       function clickTarget(el) {
         if (!el) return;
-        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+        ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(evt => {
           try { el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
         });
         try { el.click(); } catch (_) {}
@@ -4291,40 +4299,36 @@ async function ensureFlowMusicSession(tabId, forceNew = false) {
       const checkState = () => {
         const url = window.location.href;
         const text = (document.body ? document.body.innerText || "" : "").toLowerCase();
-        const isLanding = text.includes("describe the song you want and google flow music writes") || url.includes("/session?t=true");
-        const needsLogin = text.includes("free to start with a google account") &&
-          !document.querySelector("button[aria-label*='New session' i], a[href*='/session'], button[aria-label*='Toggle compose panel' i]");
         const hasComposeBtn = !!document.querySelector("button[aria-label*='compose' i], button[aria-label*='Toggle compose panel' i]");
-        const hasPromptInput = !!document.querySelector("input[placeholder*='Something else' i], textarea[aria-label*='sound' i], input[type='text'], textarea");
-        const hasNewSessionBtn = !!document.querySelector("button[aria-label*='New session' i], a[href*='/session']");
-        const isSessionStudio = url.includes("/session/") || hasComposeBtn || (hasPromptInput && !isLanding);
-        return { url, isLanding, needsLogin, hasComposeBtn, hasPromptInput, hasNewSessionBtn, isSessionStudio };
+        const hasPromptInput = !!document.querySelector("input[placeholder*='Something else' i], input[aria-label*='Something else' i], textarea[aria-label*='sound' i], textarea[aria-label*='Sound description' i], input[type='text']:not([type='hidden'])");
+        const hasClips = document.querySelectorAll("div[id^='clip-'], [class*='track'], [class*='clip']").length > 0;
+        const hasWelcome = text.includes("welcome to the studio") || text.includes("your producer is here") || text.includes("what do you want to create");
+
+        const isLanding = (url === "https://www.flowmusic.app/" || url === "https://flowmusic.app/") && !hasPromptInput && !hasComposeBtn;
+        const needsLogin = (text.includes("free to start with a google account") || text.includes("log in to continue") || (text.includes("log in") && text.includes("sign up"))) &&
+          !hasComposeBtn && !hasPromptInput && !hasClips;
+
+        const isSessionStudio = url.includes("/session") || hasComposeBtn || hasPromptInput || hasClips || hasWelcome;
+        return { url, isLanding, needsLogin, hasComposeBtn, hasPromptInput, hasClips, hasWelcome, isSessionStudio };
       };
 
+      // Poll up to 10 seconds for session components to mount/hydrate
       let state = checkState();
-
-      // If forceNew requested and already in a session studio, trigger "New session"
-      if (force && state.isSessionStudio) {
-        const newBtn = Array.from(document.querySelectorAll("button, a")).find(b =>
-          /new session|\+ new session/i.test((b.innerText || b.getAttribute("aria-label") || "").trim())
-        );
-        if (newBtn) {
-          clickTarget(newBtn);
-          await sleep(1500);
-          state = checkState();
-        }
+      for (let i = 0; i < 20; i++) {
+        if (state.hasPromptInput || state.hasComposeBtn || state.hasWelcome || state.needsLogin) break;
+        await sleep(500);
+        state = checkState();
       }
 
-      // If on landing or create song welcome view, trigger "Create a song"
-      if (state.isLanding || !state.isSessionStudio) {
-        const createBtn = Array.from(document.querySelectorAll("button, a")).find(b =>
-          /create a song|create song|start session|start a session|\+ new session|new session/i.test((b.innerText || b.getAttribute("aria-label") || "").trim())
-        );
-        if (createBtn) {
-          clickTarget(createBtn);
-
-          // Poll up to 10 seconds for session studio to mount
-          for (let i = 0; i < 20; i++) {
+      // If landing page, click Start or Create song
+      if (state.isLanding) {
+        const startBtn = document.querySelector("a[href*='/session'], button[aria-label*='Create' i]") ||
+          Array.from(document.querySelectorAll("button, a")).find(b =>
+            /create song|get started|start session|\+ new session/i.test((b.innerText || "").trim())
+          );
+        if (startBtn) {
+          clickTarget(startBtn);
+          for (let i = 0; i < 15; i++) {
             await sleep(500);
             state = checkState();
             if (state.isSessionStudio || state.hasPromptInput) break;
@@ -4333,7 +4337,7 @@ async function ensureFlowMusicSession(tabId, forceNew = false) {
       }
 
       return {
-        ok: state.isSessionStudio || state.hasPromptInput,
+        ok: state.isSessionStudio || state.hasPromptInput || state.hasComposeBtn,
         state,
         url: window.location.href
       };
@@ -4409,50 +4413,67 @@ async function handleGenerateMusic(payload = {}) {
     func: async (sPrompt, lText, isInst) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-      function setReactVal(el, val) {
-        if (!el) return;
-        el.focus();
-        const proto = Object.getPrototypeOf(el);
-        const desc = Object.getOwnPropertyDescriptor(proto, "value");
-        if (desc && desc.set) {
-          desc.set.call(el, val);
-        } else {
-          el.value = val;
-        }
-        if (el._valueTracker) {
-          try { el._valueTracker.setValue(""); } catch {}
-        }
-        el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: val }));
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-
       function clickEl(el) {
         if (!el) return;
-        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+        ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(evt => {
           try { el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window })); } catch (_) {}
         });
         try { el.click(); } catch (_) {}
       }
 
-      // 1. Strategy A: Native Lyria Compose Studio (full control over Sound, Lyrics & Instrumental)
-      const composeToggle = document.querySelector("button[aria-label*='compose' i], button[aria-label*='Toggle compose panel' i]") ||
-        Array.from(document.querySelectorAll("button")).find(b => /compose/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
+      function setNativeValue(input, val) {
+        if (!input) return false;
+        input.focus();
 
+        // 1. execCommand insertText (best for React synthetic events)
+        try {
+          input.select?.();
+          document.execCommand("selectAll", false, null);
+          const ok = document.execCommand("insertText", false, val);
+          if (ok && input.value === val) {
+            input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+            return true;
+          }
+        } catch (_) {}
+
+        // 2. React prototype descriptor fallback
+        const isArea = input instanceof HTMLTextAreaElement;
+        const proto = isArea ? (window.HTMLTextAreaElement || HTMLTextAreaElement).prototype : (window.HTMLInputElement || HTMLInputElement).prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+          desc.set.call(input, val);
+        } else {
+          input.value = val;
+        }
+
+        if (input._valueTracker) {
+          try { input._valueTracker.setValue(val + "_change"); } catch (_) {}
+        }
+
+        input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: val }));
+        input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: val }));
+        input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+        return input.value === val;
+      }
+
+      // If user specified custom lyrics or instrumental, try Compose Studio first
+      const preferCompose = !!lText || !!isInst;
+      const composeToggle = document.querySelector("button[aria-label*='compose' i], button[aria-label*='Toggle compose panel' i]");
       let soundInput = document.querySelector("textarea[aria-label*='Sound description' i], textarea[aria-label*='sound' i]");
 
-      // If sound textarea isn't immediately visible, toggle compose panel open
-      if (!soundInput && composeToggle) {
+      if (preferCompose && !soundInput && composeToggle) {
         clickEl(composeToggle);
-        await sleep(500);
+        await sleep(400);
         soundInput = document.querySelector("textarea[aria-label*='Sound description' i], textarea[aria-label*='sound' i]");
       }
 
       if (soundInput) {
-        setReactVal(soundInput, sPrompt);
-        await sleep(200);
+        setNativeValue(soundInput, sPrompt);
+        await sleep(150);
 
-        // Instrumental mode toggle
+        // Instrumental toggle
         if (isInst) {
           const instBtn = document.querySelector("button[aria-label*='Toggle instrumental mode' i], [role='switch'][aria-label*='instrumental' i]");
           if (instBtn) {
@@ -4464,34 +4485,37 @@ async function handleGenerateMusic(payload = {}) {
           }
         }
 
-        // Lyrics textarea
+        // Lyrics
         if (lText && !isInst) {
           const lyricsInput = document.querySelector("textarea[aria-label*='Lyrics' i], textarea[placeholder*='lyrics' i]");
           if (lyricsInput) {
-            setReactVal(lyricsInput, lText);
-            await sleep(200);
+            setNativeValue(lyricsInput, lText);
+            await sleep(150);
           }
         }
 
-        // Find Generate button
+        // Generate button or Ctrl+Enter
         let generateBtn = null;
         for (let i = 0; i < 15; i++) {
           generateBtn = Array.from(document.querySelectorAll("button")).find(b =>
             /^\s*generate\s*$/i.test((b.innerText || "").trim()) || /generate/i.test(b.getAttribute("aria-label") || "")
           );
           if (generateBtn && !generateBtn.disabled) break;
-          // Blur input to ensure validation runs
           try { soundInput.blur(); } catch (_) {}
-          await sleep(200);
+          await sleep(150);
         }
 
-        if (generateBtn) {
+        if (generateBtn && !generateBtn.disabled) {
           clickEl(generateBtn);
           return { ok: true, engine: "compose_studio", submittedPrompt: sPrompt, isInstrumental: isInst };
+        } else {
+          // Trigger shortcut: Ctrl+Enter / Meta+Enter
+          soundInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, ctrlKey: true, metaKey: true, bubbles: true }));
+          return { ok: true, engine: "compose_studio_shortcut", submittedPrompt: sPrompt, isInstrumental: isInst };
         }
       }
 
-      // 2. Strategy B: Producer Chat Prompt Bar (Fallback)
+      // Strategy B: Producer Chat Prompt Bar
       const fullPrompt = isInst ? `${sPrompt} [Instrumental track]` : (lText ? `${sPrompt}\n\n[Lyrics]:\n${lText}` : sPrompt);
       let chatInput = null;
       for (let i = 0; i < 20; i++) {
@@ -4513,17 +4537,23 @@ async function handleGenerateMusic(payload = {}) {
         chatInput.innerText = fullPrompt;
         chatInput.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: fullPrompt }));
       } else {
-        setReactVal(chatInput, fullPrompt);
+        setNativeValue(chatInput, fullPrompt);
       }
       await sleep(250);
 
       const form = chatInput.closest("form");
       const container = form || chatInput.parentElement?.parentElement || document;
-      const submitBtn = Array.from(container.querySelectorAll("button")).find(b =>
-        /send|submit/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()) ||
-        b.type === "submit" ||
-        b.querySelector("svg.lucide-arrow-up, svg[class*='arrow-up']")
-      );
+
+      let submitBtn = null;
+      for (let i = 0; i < 15; i++) {
+        submitBtn = Array.from(container.querySelectorAll("button")).find(b =>
+          /send|submit/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()) ||
+          b.type === "submit" ||
+          b.querySelector("svg.lucide-arrow-up, svg[class*='arrow-up']")
+        );
+        if (submitBtn && !submitBtn.disabled) break;
+        await sleep(150);
+      }
 
       if (submitBtn && !submitBtn.disabled) {
         clickEl(submitBtn);
@@ -4557,7 +4587,7 @@ async function handleGenerateMusic(payload = {}) {
         const downloadLinks = Array.from(document.querySelectorAll("a[href*='.mp3'], a[href*='.wav'], a[download]"));
         const playBtns = Array.from(document.querySelectorAll("button:has(svg.lucide-play), button[aria-label*='Play' i], button.play-button"));
         const wavesurfers = Array.from(document.querySelectorAll("canvas, div[class*='wavesurfer']"));
-        const songCards = Array.from(document.querySelectorAll("[data-track], [data-song], .song-card, .track-item, [class*='track']"));
+        const songCards = Array.from(document.querySelectorAll("div[id^='clip-'], [data-track], [data-song], .song-card, .track-item, [class*='track']"));
         const titles = Array.from(document.querySelectorAll("h2, h3, h4, .font-semibold, .font-bold, [data-song-title]"))
           .map(el => (el.innerText || "").trim())
           .filter(t => t.length > 2 && !/new session|flow music|what do you want|producer|ask producer|create song|something else/i.test(t));
@@ -4576,7 +4606,7 @@ async function handleGenerateMusic(payload = {}) {
       }
     }).then(r => r?.[0]?.result).catch(() => null);
 
-    if (probe?.hasAudio || probe?.hasPlayButton || probe?.hasWavesurfer || (probe?.title && !probe?.isGenerating)) {
+    if (probe?.hasAudio || (probe?.songCount > 0 && !probe?.isGenerating) || probe?.hasPlayButton || probe?.hasWavesurfer || (probe?.title && !probe?.isGenerating)) {
       audioResult = probe;
       break;
     }
@@ -4724,7 +4754,7 @@ async function connectToAntigravityServer(force = false) {
       safeSend(thisWs, {
         type: "HELLO",
         client: "deepx-flow-extension",
-        version: chrome.runtime?.getManifest?.()?.version || "1.3.7",
+        version: chrome.runtime?.getManifest?.()?.version || "1.3.8",
         account: acc,
         flowTabOpen: tabOpen,
         flowMusicTabOpen: musicTabOpen,
@@ -4947,7 +4977,7 @@ async function connectToAntigravityServer(force = false) {
             }
             result = await handleBatchGenerate(payload, (progress) => {
               // Send live progress event
-              ws.send(JSON.stringify({ type: "PROGRESS", id, progress }));
+              safeSend(thisWs, { type: "PROGRESS", id, progress });
             });
             break;
           }
@@ -4964,7 +4994,7 @@ async function connectToAntigravityServer(force = false) {
               rapidDispatch: true,
               waitForCompletion: payload.waitForCompletion || false
             }, (progress) => {
-              ws.send(JSON.stringify({ type: "PROGRESS", id, progress }));
+              safeSend(thisWs, { type: "PROGRESS", id, progress });
             });
             break;
           }

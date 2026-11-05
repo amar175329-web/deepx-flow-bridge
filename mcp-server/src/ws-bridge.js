@@ -119,12 +119,14 @@ export class DeepXWsBridge {
             return;
           }
 
-          if (req.url === "/deepx.zip" || req.url === "/download" || req.url === "/deepx-v1.3.7.zip" || req.url === "/deepx-v1.3.6.zip" || req.url === "/deepx-v1.3.5.zip" || req.url === "/deepx-v1.3.4.zip" || req.url === "/deepx-v1.3.2.zip" || req.url === "/deepx-v1.3.1.zip") {
+          if (req.url === "/deepx.zip" || req.url === "/download" || req.url === "/deepx-v1.3.8.zip" || req.url === "/deepx-v1.3.7.zip" || req.url === "/deepx-v1.3.6.zip" || req.url === "/deepx-v1.3.5.zip" || req.url === "/deepx-v1.3.4.zip" || req.url === "/deepx-v1.3.2.zip" || req.url === "/deepx-v1.3.1.zip") {
             const possiblePaths = [
-              "/home/ubuntu/deepx-flow-bridge/deepx-v1.3.7.zip",
+              "/home/ubuntu/deepx-flow-bridge/deepx-v1.3.8.zip",
               "/home/ubuntu/deepx-flow-bridge/deepx.zip",
-              "/home/ubuntu/outputs/2026-11/deepx/deepx-v1.3.7.zip",
+              "/home/ubuntu/outputs/2026-11/deepx/deepx-v1.3.8.zip",
               "/home/ubuntu/outputs/2026-11/deepx/deepx.zip",
+              "/home/ubuntu/deepx-flow-bridge/deepx-v1.3.7.zip",
+              "/home/ubuntu/outputs/2026-11/deepx/deepx-v1.3.7.zip",
               "/home/ubuntu/deepx-flow-bridge/deepx-v1.3.6.zip",
               "/home/ubuntu/outputs/2026-11/deepx/deepx-v1.3.6.zip"
             ];
@@ -132,7 +134,7 @@ export class DeepXWsBridge {
               if (fs.existsSync(p)) {
                 res.writeHead(200, {
                   "Content-Type": "application/zip",
-                  "Content-Disposition": "attachment; filename=\"deepx-v1.3.7.zip\""
+                  "Content-Disposition": "attachment; filename=\"deepx-v1.3.8.zip\""
                 });
                 fs.createReadStream(p).pipe(res);
                 return;

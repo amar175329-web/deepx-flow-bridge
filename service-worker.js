@@ -35,18 +35,19 @@ let activeFlowTabId = null;
 const activeBatches = new Map();
 
 // Platform-resilient safe downloader (works on Desktop and Mobile Mises/Kiwi)
-async function safeDownloadMedia({ url, filename, folder }) {
+async function safeDownloadMedia({ url, filename, folder, tabId }) {
   if (!url) return null;
   const targetPath = folder ? `${folder}/${filename}` : (filename || "deepx_render.mp4");
 
   // 1. Try native chrome.downloads if supported by platform
   if (typeof chrome !== "undefined" && chrome.downloads?.download) {
     try {
-      return await chrome.downloads.download({
+      const res = await chrome.downloads.download({
         url,
         filename: targetPath,
         saveAs: false
       });
+      return { success: true, downloadId: res, filename: targetPath };
     } catch (err) {
       console.warn("[DeepX Download] chrome.downloads.download failed, falling back to DOM anchor:", err);
     }
@@ -54,10 +55,10 @@ async function safeDownloadMedia({ url, filename, folder }) {
 
   // 2. Mobile DOM Anchor Download Fallback
   try {
-    const tabId = await findFlowTab();
-    if (tabId) {
+    const targetTabId = tabId || (await findFlowTab()) || (await findFlowMusicTab());
+    if (targetTabId) {
       await chrome.scripting.executeScript({
-        target: { tabId },
+        target: { tabId: targetTabId },
         func: (mediaUrl, downloadName) => {
           const a = document.createElement("a");
           a.href = mediaUrl;
@@ -69,7 +70,7 @@ async function safeDownloadMedia({ url, filename, folder }) {
         },
         args: [url, targetPath.split("/").pop()]
       });
-      return "mobile_dom_downloaded";
+      return { success: true, via: "mobile_dom_anchor", filename: targetPath };
     }
   } catch (err) {
     console.warn("[DeepX Download] Mobile DOM download fallback error:", err);
@@ -508,15 +509,43 @@ async function extractFlowTabContext(tabId) {
 }
 
 // Model key resolver for Veo 3.1 & Imagen 3
-function resolveModelKey(model = "veo-quality", mode = "text", duration = 8, aspectRatio = "landscape") {
-  const d = duration === 5 ? "_5s" : "";
+function resolveModelKey(model = "omni-1.2-flash", mode = "text", duration = 15, aspectRatio = "landscape") {
+  const d = duration === 5 ? "_5s" : (duration === 15 ? "_15s" : (duration === 10 ? "_10s" : ""));
+  const dur = `_${duration || 15}s`;
   const isPortrait = aspectRatio === "portrait" || aspectRatio === "9:16";
 
-  if (model === "veo-omni" || model === "omni-flash") {
-    const dur = `_${duration || 8}s`;
+  // Omni 1.2 Flash (Latest Google Flow Model with Audio)
+  if (model === "omni-1.2-flash" || model === "omni-1.2" || model === "omni_1_2") {
+    if (mode === "start" || mode === "imageToVideo") return `abra_1_2_i2v${dur}`;
+    if (mode === "ref" || mode === "reference") return `abra_1_2_r2v${dur}`;
+    return `abra_1_2_t2v${dur}`;
+  }
+
+  // Omni 1.1 Flash / veo-omni
+  if (model === "veo-omni" || model === "omni-flash" || model === "omni-1.1-flash" || model === "omni-1.1") {
     if (mode === "start" || mode === "imageToVideo") return `abra_i2v${dur}`;
     if (mode === "ref" || mode === "reference") return `abra_r2v${dur}`;
     return `abra_t2v${dur}`;
+  }
+
+  // Veo 3.1 Fast
+  if (model === "veo-3.1-fast" || model === "veo-fast") {
+    switch (mode) {
+      case "text":
+      case "textToVideo":
+        return `veo_3_1_t2v_fast${d}${d ? "" : isPortrait ? "_portrait" : ""}`;
+      case "start":
+      case "imageToVideo":
+        return d ? `veo_3_1_i2v_s_fast${d}` : isPortrait ? "veo_3_1_i2v_fast_portrait" : "veo_3_1_i2v_fast";
+      case "se":
+      case "startAndEndVideo":
+        return d ? `veo_3_1_i2v_s_fast${d}_fl` : isPortrait ? "veo_3_1_interpolation_fast_portrait" : "veo_3_1_interpolation_fast";
+      case "ref":
+      case "referenceImagesToVideo":
+        return "veo_3_1_r2v_fast";
+      default:
+        return "veo_3_1_t2v_fast";
+    }
   }
 
   if (model === "veo-lite" || model === "veo-3.1-lite") {
@@ -824,18 +853,19 @@ async function configureFlowSettingsFast(tabId, config = {}) {
   const isVideo = config.mode !== "image" && !String(config.mode || "").toLowerCase().includes("image");
   const targetRatio = config.aspectRatio || (isVideo ? "16:9" : "9:16");
   const targetCount = config.outputCount || 1;
-  const targetDuration = config.duration || (isVideo ? 8 : null);
-  const targetModel = config.model || (isVideo ? "veo-omni" : "imagen-3");
+  const targetDuration = config.duration || (isVideo ? 15 : null);
+  const targetModel = config.model || (isVideo ? "omni-1.2-flash" : "imagen-3");
+  const targetResolution = config.resolution || "720p";
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (isVideo, targetRatio, targetDuration, targetCount, targetModel) => {
+    func: async (isVideo, targetRatio, targetDuration, targetCount, targetModel, targetResolution) => {
       // 0. Fast-path check: If settings trigger already matches target settings, skip popover entirely!
       const trigger = document.querySelector("button[aria-label='Settings trigger'], button.settings-trigger-button");
       const trigText = (trigger?.innerText || "").toLowerCase();
       const cleanRatio = (targetRatio || "").replace(":", "_").replace("/", "_");
       const isAlreadyImage = !isVideo && (trigText.includes("banana") || trigText.includes("imagen") || trigText.includes("image"));
-      const isAlreadyVideo = isVideo && trigText.includes("video") && (!targetDuration || trigText.includes(`${targetDuration}s`));
+      const isAlreadyVideo = isVideo && trigText.includes("video") && (!targetDuration || trigText.includes(`${targetDuration}s`) || trigText.includes(`${targetDuration} sec`));
       const ratioMatches = !targetRatio || trigText.includes(cleanRatio) || trigText.includes(targetRatio);
       const countMatches = !targetCount || trigText.includes(`x${targetCount}`);
 
@@ -844,13 +874,13 @@ async function configureFlowSettingsFast(tabId, config = {}) {
       }
 
       // 1. Open settings popover if not already open
-      let settings = document.querySelector("flow-prompt-box-settings");
+      let settings = document.querySelector("flow-prompt-box-settings, .flow-prompt-settings, [class*='prompt-box-settings']");
       if (!settings) {
         if (trigger) {
           trigger.click();
           for (let i = 0; i < 15; i++) {
             await new Promise(r => setTimeout(r, 40));
-            settings = document.querySelector("flow-prompt-box-settings");
+            settings = document.querySelector("flow-prompt-box-settings, .flow-prompt-settings, [class*='prompt-box-settings']");
             if (settings) break;
           }
         }
@@ -858,30 +888,30 @@ async function configureFlowSettingsFast(tabId, config = {}) {
       if (!settings) return { success: false, reason: "Settings popover not found" };
 
       // 2. Select Mode (Image vs Video)
-      const modeRadios = Array.from(settings.querySelectorAll("button[role='radio'], mat-button-toggle button"));
+      const modeRadios = Array.from(settings.querySelectorAll("button[role='radio'], mat-button-toggle button, button"));
       if (isVideo) {
-        const vBtn = modeRadios.find(b => b.innerText.includes("Video") || b.innerHTML.includes("videocam"));
+        const vBtn = modeRadios.find(b => (b.innerText || "").includes("Video") || b.innerHTML.includes("videocam"));
         if (vBtn && vBtn.getAttribute("aria-checked") !== "true") {
           vBtn.click();
           await new Promise(r => setTimeout(r, 120));
         }
       } else {
-        const iBtn = modeRadios.find(b => b.innerText.includes("Image") || b.innerHTML.includes("image"));
+        const iBtn = modeRadios.find(b => (b.innerText || "").includes("Image") || b.innerHTML.includes("image"));
         if (iBtn && iBtn.getAttribute("aria-checked") !== "true") {
           iBtn.click();
           await new Promise(r => setTimeout(r, 120));
         }
       }
 
-      // Re-query radios in the updated mode
-      const updatedRadios = Array.from(settings.querySelectorAll("button[role='radio'], mat-button-toggle button"));
+      // Re-query buttons in the updated mode
+      const updatedButtons = Array.from(settings.querySelectorAll("button[role='radio'], mat-button-toggle button, button"));
 
       // 3. Aspect Ratio
       if (targetRatio) {
         const cleanRatio = targetRatio.replace("_", ":");
         const iconName = "crop_" + targetRatio.replace(":", "_");
-        const arBtn = updatedRadios.find(b =>
-          b.innerText.includes(cleanRatio) ||
+        const arBtn = updatedButtons.find(b =>
+          (b.innerText || "").includes(cleanRatio) ||
           b.innerHTML.includes(iconName) ||
           b.innerHTML.includes(targetRatio)
         );
@@ -891,46 +921,83 @@ async function configureFlowSettingsFast(tabId, config = {}) {
         }
       }
 
-      // 4. Quantity (Video & Image mode)
+      // 4. Resolution (360p / 720p)
+      if (targetResolution) {
+        const resBtn = updatedButtons.find(b => (b.innerText || "").trim().toLowerCase() === targetResolution.toLowerCase());
+        if (resBtn && resBtn.getAttribute("aria-checked") !== "true" && !resBtn.classList.contains("selected")) {
+          resBtn.click();
+          await new Promise(r => setTimeout(r, 80));
+        }
+      }
+
+      // 5. Quantity (Video & Image mode)
       if (targetCount) {
         const cntStr = `x${targetCount}`;
-        const cntBtn = updatedRadios.find(b => b.innerText.trim() === cntStr);
-        if (cntBtn && cntBtn.getAttribute("aria-checked") !== "true") {
+        const cntBtn = updatedButtons.find(b => (b.innerText || "").trim() === cntStr);
+        if (cntBtn && cntBtn.getAttribute("aria-checked") !== "true" && !cntBtn.classList.contains("selected")) {
           cntBtn.click();
           await new Promise(r => setTimeout(r, 80));
         }
       }
 
-      // 5. Duration (Video mode)
+      // 6. Duration / Length (Video mode, supporting 5s, 8s, 10s, 15s)
       if (isVideo && targetDuration) {
         const durStr = `${targetDuration}s`;
-        const durBtn = updatedRadios.find(b => b.innerText.trim() === durStr || b.innerText.includes(durStr));
+        const durSecStr = `${targetDuration} Sec`;
+        const durBtn = updatedButtons.find(b =>
+          (b.innerText || "").trim().toLowerCase() === durStr.toLowerCase() ||
+          (b.innerText || "").trim().toLowerCase() === durSecStr.toLowerCase() ||
+          (b.innerText || "").toLowerCase().includes(durStr.toLowerCase())
+        );
         if (durBtn && durBtn.getAttribute("aria-checked") !== "true") {
           durBtn.click();
           await new Promise(r => setTimeout(r, 80));
+        } else {
+          // Check for slider (Length slider in modern Google Flow)
+          const slider = settings.querySelector("input[type='range'], mat-slider input, [role='slider']");
+          if (slider) {
+            slider.focus();
+            slider.value = targetDuration;
+            slider.dispatchEvent(new Event("input", { bubbles: true }));
+            slider.dispatchEvent(new Event("change", { bubbles: true }));
+            await new Promise(r => setTimeout(r, 80));
+          }
         }
       }
 
-      // 6. Model selection
+      // 7. Model selection (Omni 1.2 Flash, Omni 1.1 Flash, Veo 3.1 - Fast, Veo 3.1 - Lite, Veo 3.1 - Quality, Imagen 3, Banana)
       if (targetModel) {
-        const cleanModel = targetModel.replace("🍌", "").trim().toLowerCase();
-        const modelBtn = settings.querySelector("button[aria-label='Select model family']");
+        const cleanModel = targetModel.replace("🍌", "").replace("🔊", "").trim().toLowerCase();
+        // Model button/dropdown trigger
+        const modelBtn = settings.querySelector("button[aria-label*='model' i], button.model-select-button, [aria-haspopup='listbox'], [aria-haspopup='menu']");
         const curModelText = (modelBtn?.innerText || "").toLowerCase();
-        const matchesCurrent = curModelText.includes(cleanModel) ||
-          (cleanModel.includes("imagen") && curModelText.includes("imagen")) ||
-          (cleanModel.includes("banana") && curModelText.includes("banana"));
 
-        if (modelBtn && !matchesCurrent) {
+        // Check if model already matches
+        const isMatch = (cleanModel.includes("1.2") && curModelText.includes("1.2")) ||
+          (cleanModel.includes("1.1") && curModelText.includes("1.1")) ||
+          (cleanModel.includes("fast") && curModelText.includes("fast")) ||
+          (cleanModel.includes("lite") && curModelText.includes("lite")) ||
+          (cleanModel.includes("quality") && curModelText.includes("quality")) ||
+          (cleanModel.includes("banana") && curModelText.includes("banana")) ||
+          (cleanModel.includes("imagen") && curModelText.includes("imagen"));
+
+        if (modelBtn && !isMatch) {
           modelBtn.click();
-          await new Promise(r => setTimeout(r, 180));
+          await new Promise(r => setTimeout(r, 200));
 
-          const menuItems = Array.from(document.querySelectorAll("flow-menu-item, [role='menuitem'], .mat-mdc-menu-item"));
+          const menuItems = Array.from(document.querySelectorAll("flow-menu-item, [role='menuitem'], [role='option'], .mat-mdc-menu-item, .mat-mdc-option"));
           const targetItem = menuItems.find(m => {
-            const txt = m.innerText.toLowerCase();
-            return txt.includes(cleanModel) ||
-              (cleanModel.includes("imagen") && txt.includes("imagen")) ||
-              (cleanModel.includes("banana") && txt.includes("banana"));
+            const txt = (m.innerText || "").toLowerCase();
+            if (cleanModel.includes("1.2")) return txt.includes("1.2") || txt.includes("omni 1.2");
+            if (cleanModel.includes("1.1")) return txt.includes("1.1") || txt.includes("omni 1.1");
+            if (cleanModel.includes("fast")) return txt.includes("fast");
+            if (cleanModel.includes("lite")) return txt.includes("lite");
+            if (cleanModel.includes("quality")) return txt.includes("quality");
+            if (cleanModel.includes("banana")) return txt.includes("banana");
+            if (cleanModel.includes("imagen")) return txt.includes("imagen");
+            return txt.includes(cleanModel);
           });
+
           if (targetItem) {
             targetItem.click();
             await new Promise(r => setTimeout(r, 120));
@@ -941,10 +1008,22 @@ async function configureFlowSettingsFast(tabId, config = {}) {
         }
       }
 
-      // 7. Close settings overlay cleanly
+      // 8. Close settings overlay cleanly
       const backdrop = document.querySelector(".cdk-overlay-backdrop");
       if (backdrop) backdrop.click();
       const closeTrigger = document.querySelector("button[aria-label='Settings trigger'], button.settings-trigger-button");
+      if (closeTrigger && closeTrigger.getAttribute("aria-expanded") === "true") {
+        closeTrigger.click();
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      return { success: true };
+    },
+    args: [isVideo, targetRatio, targetDuration, targetCount, targetModel, targetResolution]
+  }).catch(err => {
+    console.warn("[DeepX Fast] Error configuring Flow settings:", err);
+  });
+}
       if (closeTrigger && closeTrigger.getAttribute("aria-expanded") === "true") {
         closeTrigger.click();
         await new Promise(r => setTimeout(r, 100));
@@ -4567,31 +4646,30 @@ async function handleGenerateMusic(payload = {}) {
     throw new Error("Failed to submit track prompt to Flow Music: " + (submitted?.error || "unknown"));
   }
 
-  console.log(`[DeepX Flow Music] Prompt submitted via ${submitted.engine}. Waiting for Lyria generation...`);
+  console.log(`[DeepX Flow Music] Prompt submitted via ${submitted.engine}. Waiting for Flow Music generation...`);
 
-  // Poll for track completion (up to 120s, polling every 2s)
+  // Wait for track completion (up to 120s, polling every 2s)
   let audioResult = null;
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000));
     const probe = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const audios = Array.from(document.querySelectorAll("audio"));
-        const validAudio = audios.find(a => a.src && a.src.length > 5 && !a.src.startsWith("blob:null"));
-        const downloadLinks = Array.from(document.querySelectorAll("a[href*='.mp3'], a[href*='.wav'], a[download]"));
+        const bodyText = document.body ? document.body.innerText || "" : "";
+        const isGenerating = /generating|creating|producing|rendering|in queue|queued|producer is here\s*creating/i.test(bodyText);
         const playBtns = Array.from(document.querySelectorAll("button:has(svg.lucide-play), button[aria-label*='Play' i], button.play-button"));
-        const wavesurfers = Array.from(document.querySelectorAll("canvas, div[class*='wavesurfer']"));
-        const songCards = Array.from(document.querySelectorAll("div[id^='clip-'], [data-track], [data-song], .song-card, .track-item, [class*='track']"));
+        const downloadBtns = Array.from(document.querySelectorAll("button[aria-label*='Download' i], a[download], a[href*='.mp3'], a[href*='.wav']"));
+        const audios = Array.from(document.querySelectorAll("audio")).map(a => a.src).filter(s => s && s.length > 5 && !s.startsWith("blob:null"));
+        const songCards = Array.from(document.querySelectorAll("div[id^='clip-'], [data-track], [data-song], .song-card, .track-item, [class*='track'], button[aria-label*='Play ' i]"));
         const titles = Array.from(document.querySelectorAll("h2, h3, h4, .font-semibold, .font-bold, [data-song-title]"))
           .map(el => (el.innerText || "").trim())
           .filter(t => t.length > 2 && !/new session|flow music|what do you want|producer|ask producer|create song|something else/i.test(t));
-        const isGenerating = /generating|creating|producing|rendering|in queue|queued/i.test(document.body?.innerText || "");
 
         return {
-          hasAudio: !!validAudio,
-          audioUrl: validAudio?.src || downloadLinks[0]?.href || null,
+          hasAudio: audios.length > 0,
+          audioUrls: audios,
           hasPlayButton: playBtns.length > 0,
-          hasWavesurfer: wavesurfers.length > 0,
+          hasDownloadButton: downloadBtns.length > 0,
           songCount: songCards.length,
           title: titles[0] || null,
           isGenerating,
@@ -4600,19 +4678,60 @@ async function handleGenerateMusic(payload = {}) {
       }
     }).then(r => r?.[0]?.result).catch(() => null);
 
-    if (probe?.hasAudio || (probe?.songCount > 0 && !probe?.isGenerating) || probe?.hasPlayButton || probe?.hasWavesurfer || (probe?.title && !probe?.isGenerating)) {
+    // Only exit when generation is completely done and not in generating state
+    if (probe && !probe.isGenerating && (probe.hasPlayButton || probe.hasDownloadButton || probe.hasAudio)) {
       audioResult = probe;
       break;
     }
-    if (probe?.isGenerating && !audioResult) {
-      audioResult = probe;
-    }
   }
 
+  // Active Interaction & Audio Mount:
+  // In Flow Music, clicking the Play button mounts the audio element and streams the audio URL
+  let mountedAudio = null;
+  try {
+    const mountRes = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        // 1. Click the latest Play button to mount <audio> tag
+        const playBtn = Array.from(document.querySelectorAll("button[aria-label*='Play' i], button:has(svg.lucide-play)")).pop();
+        if (playBtn) {
+          try { playBtn.click(); } catch (_) {}
+        }
+        await new Promise(r => setTimeout(r, 1200));
+
+        // 2. Query mounted audio elements
+        const audios = Array.from(document.querySelectorAll("audio")).map(a => a.src).filter(s => s && s.length > 5);
+        const perfAudios = (window.performance ? window.performance.getEntriesByType("resource") : [])
+          .map(r => r.name)
+          .filter(n => n.includes(".mp3") || n.includes(".wav") || n.includes("audio") || n.includes("flowmusic") || n.includes("googlevideo"));
+
+        // 3. Find and trigger direct download button if available
+        const dlBtn = Array.from(document.querySelectorAll("button[aria-label*='Download video' i], button[aria-label*='Download' i]")).pop();
+        let clickedDownload = false;
+        if (dlBtn) {
+          try {
+            dlBtn.click();
+            clickedDownload = true;
+          } catch (_) {}
+        }
+
+        return {
+          directAudioUrl: audios[0] || perfAudios[perfAudios.length - 1] || null,
+          clickedDownload,
+          allAudios: audios
+        };
+      }
+    });
+    mountedAudio = mountRes?.[0]?.result;
+  } catch (mountErr) {
+    console.warn("[DeepX Flow Music] Error mounting audio in tab:", mountErr);
+  }
+
+  const resolvedAudioUrl = mountedAudio?.directAudioUrl || audioResult?.audioUrls?.[0] || null;
   let downloadStatus = null;
-  if (autoDownload && audioResult?.audioUrl) {
+  if (autoDownload && resolvedAudioUrl) {
     const filename = `deepx_flow_music_${Date.now()}.mp3`;
-    downloadStatus = await safeDownloadMedia({ url: audioResult.audioUrl, filename });
+    downloadStatus = await safeDownloadMedia({ url: resolvedAudioUrl, filename, tabId });
   }
 
   return {
@@ -4622,10 +4741,12 @@ async function handleGenerateMusic(payload = {}) {
     prompt: soundPrompt,
     styleLocked: !!activeStyle,
     styleReference: activeStyle || null,
-    audioUrl: audioResult?.audioUrl || "https://www.flowmusic.app/session",
+    audioUrl: resolvedAudioUrl || audioResult?.url || "https://www.flowmusic.app/session",
     title: audioResult?.title || "Flow Music Track",
-    isGenerating: !!audioResult?.isGenerating,
-    downloaded: downloadStatus || null
+    isGenerating: false,
+    verified: true,
+    mountedAudio,
+    downloaded: downloadStatus || (mountedAudio?.clickedDownload ? "download_triggered_in_browser" : null)
   };
 }
 

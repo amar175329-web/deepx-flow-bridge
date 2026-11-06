@@ -3,25 +3,44 @@
 export const FLOW_OPTIONS = {
   videoModels: [
     {
-      id: "veo-quality",
-      name: "Veo 3.1 Quality (Director-grade)",
-      description: "Highest visual fidelity, photorealistic textures, complex motion dynamics, and precise physics simulation. Best for final cinematic productions.",
-      durations: [5, 8],
-      aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"]
+      id: "omni-1.2-flash",
+      name: "Omni 1.2 Flash (Latest with Audio)",
+      description: "Google Flow's latest flagship video model featuring high-speed multimodal generation with integrated high-fidelity sound and speech. Supports up to 15s duration.",
+      durations: [5, 8, 10, 15],
+      aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+      resolutions: ["720p", "360p"]
+    },
+    {
+      id: "omni-1.1-flash",
+      name: "Omni 1.1 Flash (Fast with Audio)",
+      description: "Interactive audio-enabled video generation with versatile conditioning on image references and narrative beats. Supports up to 15s duration.",
+      durations: [5, 8, 10, 15],
+      aspectRatios: ["16:9", "9:16"],
+      resolutions: ["720p", "360p"]
+    },
+    {
+      id: "veo-3.1-fast",
+      name: "Veo 3.1 - Fast (High-Speed with Audio)",
+      description: "Ultra-fast Veo 3.1 generation with synchronized audio. Great for rapid scene drafting up to 15s.",
+      durations: [5, 8, 10, 15],
+      aspectRatios: ["16:9", "9:16", "1:1"],
+      resolutions: ["720p", "360p"]
     },
     {
       id: "veo-lite",
-      name: "Veo 3.1 Lite (High-speed)",
+      name: "Veo 3.1 - Lite (High-Speed)",
       description: "Optimized for fast rendering and rapid iteration. Retains high motion coherence with substantially reduced latency.",
-      durations: [5, 8],
-      aspectRatios: ["16:9", "9:16", "1:1"]
+      durations: [5, 8, 10, 15],
+      aspectRatios: ["16:9", "9:16", "1:1"],
+      resolutions: ["720p", "360p"]
     },
     {
-      id: "veo-omni",
-      name: "Veo Omni (Abra Multimodal)",
-      description: "Interactive video generation with versatile conditioning on image references and narrative beats.",
-      durations: [5, 8, 10],
-      aspectRatios: ["16:9", "9:16"]
+      id: "veo-quality",
+      name: "Veo 3.1 - Quality (Director-Grade)",
+      description: "Highest visual fidelity, photorealistic textures, complex motion dynamics, and precise physics simulation. Best for final cinematic productions.",
+      durations: [5, 8, 10, 15],
+      aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+      resolutions: ["720p", "360p"]
     }
   ],
 
@@ -99,9 +118,11 @@ export function getDeepXKnowledgeMarkdown() {
   return `# DeepX Knowledge Base: Google Flow (Veo 3.1 & Imagen 3)
 
 ## Available Video Models
-- **veo-quality** (Veo 3.1 Quality): Highest fidelity, director-grade cinematic output. Supports 5s & 8s durations in 16:9 and 9:16.
-- **veo-lite** (Veo 3.1 Lite): Ultra-fast rendering with high coherence. Excellent for rapid iterative scene drafting.
-- **veo-omni** (Abra): Multimodal video generation supporting 5s, 8s, 10s.
+- **omni-1.2-flash** (Omni 1.2 Flash): Google Flow's flagship audio-enabled video model. Supports 5s, 8s, 10s, 15s in 720p/360p.
+- **omni-1.1-flash** / **veo-omni** (Omni 1.1 Flash): High-speed multimodal video generation with audio. Supports 5s, 8s, 10s, 15s.
+- **veo-3.1-fast** (Veo 3.1 - Fast): Fast audio-synchronized generation. Supports 5s, 8s, 10s, 15s.
+- **veo-lite** (Veo 3.1 - Lite): Ultra-fast rendering with high coherence.
+- **veo-quality** (Veo 3.1 - Quality): Highest fidelity, director-grade cinematic output. Supports up to 15s duration.
 
 ## Image Generation
 - **imagen-3** (NARWHAL): Ultra-high detail, rich color fidelity, text rendering, and multi-asset reference blending. Supports 1x to 4x outputs per prompt.

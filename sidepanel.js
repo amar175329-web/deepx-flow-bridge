@@ -609,6 +609,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const spImageControlsRow = document.getElementById("spImageControlsRow");
   const spMusicControlsRow = document.getElementById("spMusicControlsRow");
   const spSelectVideoModel = document.getElementById("spSelectVideoModel");
+  const spSelectResolution = document.getElementById("spSelectResolution");
   const spSelectImageModel = document.getElementById("spSelectImageModel");
   const spSelectRatio = document.getElementById("spSelectRatio");
   const spSelectImageRatio = document.getElementById("spSelectImageRatio");
@@ -907,7 +908,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const isVideo = currentRapidMode === "video";
       const model = isVideo
-        ? (spSelectVideoModel?.value || "veo-omni")
+        ? (spSelectVideoModel?.value || "omni-1.2-flash")
         : (spSelectImageModel?.value || "🍌 Nano Banana 2.1");
       const ratio = isVideo
         ? (spSelectRatio?.value || "9:16")
@@ -966,7 +967,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const isVideo = currentRapidMode === "video";
       const model = isVideo
-        ? (spSelectVideoModel?.value || "veo-omni")
+        ? (spSelectVideoModel?.value || "omni-1.2-flash")
         : (spSelectImageModel?.value || "🍌 Nano Banana 2.1");
       const ratio = isVideo
         ? (spSelectRatio?.value || "16:9")
@@ -1026,9 +1027,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const isVideo = currentRapidMode === "video";
       const payload = {
         mode: isVideo ? "video" : "image",
-        model: isVideo ? (spSelectVideoModel?.value || "veo-omni") : (spSelectImageModel?.value || "🍌 Nano Banana 2.1"),
+        model: isVideo ? (spSelectVideoModel?.value || "omni-1.2-flash") : (spSelectImageModel?.value || "🍌 Nano Banana 2.1"),
         aspectRatio: isVideo ? (spSelectRatio?.value || "9:16") : (spSelectImageRatio?.value || "9:16"),
-        duration: isVideo ? parseInt(spSelectDuration?.value || "10", 10) : null,
+        duration: isVideo ? parseInt(spSelectDuration?.value || "15", 10) : null,
+        resolution: isVideo ? (spSelectResolution?.value || "720p") : null,
         outputCount: isVideo ? parseInt(spSelectVideoCount?.value || "1", 10) : parseInt(spSelectImageCount?.value || "1", 10)
       };
 
@@ -1037,13 +1039,13 @@ document.addEventListener("DOMContentLoaded", () => {
         payload
       }, (res) => {
         if (res?.success) {
-          log(`[Realtime Sync] Flow pill updated: ${payload.mode.toUpperCase()} · ${payload.model} · ${payload.aspectRatio}${payload.duration ? ` · ${payload.duration}s` : ""} · x${payload.outputCount}`, "info");
+          log(`[Realtime Sync] Flow pill updated: ${payload.mode.toUpperCase()} · ${payload.resolution || ""} · ${payload.model} · ${payload.aspectRatio}${payload.duration ? ` · ${payload.duration}s` : ""} · x${payload.outputCount}`, "info");
         }
       });
     }, 150);
   }
 
-  [spSelectVideoModel, spSelectRatio, spSelectDuration, spSelectVideoCount, spSelectImageModel, spSelectImageRatio, spSelectImageCount].forEach(el => {
+  [spSelectVideoModel, spSelectResolution, spSelectRatio, spSelectDuration, spSelectVideoCount, spSelectImageModel, spSelectImageRatio, spSelectImageCount].forEach(el => {
     if (el) el.addEventListener("change", triggerRealtimeSync);
   });
 

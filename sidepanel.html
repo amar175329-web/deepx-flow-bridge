@@ -599,13 +599,22 @@
     
     <!-- Real-Time Dynamic Parameter Controls -->
     <!-- VIDEO CONTROLS CONTAINER -->
-    <div id="spVideoControlsRow" style="display: grid; grid-template-columns: 1.2fr 0.9fr 0.9fr 0.8fr; gap: 6px; margin-bottom: 10px;">
+    <div id="spVideoControlsRow" style="display: grid; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.7fr 0.7fr; gap: 6px; margin-bottom: 10px;">
       <div>
         <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Video Model</div>
         <select id="spSelectVideoModel" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
-          <option value="veo-omni" selected>Omni 1.1 Flash (Fast)</option>
-          <option value="veo-quality">Veo 3.1 - Quality</option>
-          <option value="veo-lite">Veo 3.1 - Lite</option>
+          <option value="omni-1.2-flash" selected>🔊 Omni 1.2 Flash (Latest)</option>
+          <option value="omni-1.1-flash">🔊 Omni 1.1 Flash</option>
+          <option value="veo-3.1-fast">🔊 Veo 3.1 - Fast</option>
+          <option value="veo-lite">🔊 Veo 3.1 - Lite</option>
+          <option value="veo-quality">🔊 Veo 3.1 - Quality</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Res</div>
+        <select id="spSelectResolution" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
+          <option value="720p" selected>720p (HD)</option>
+          <option value="360p">360p</option>
         </select>
       </div>
       <div>
@@ -621,7 +630,8 @@
       <div>
         <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 2px;">Timing</div>
         <select id="spSelectDuration" style="width: 100%; background: #121827; border: 1px solid var(--border); color: #fff; padding: 5px; border-radius: 4px; font-size: 11px;">
-          <option value="10" selected>10s (Omni)</option>
+          <option value="15" selected>15s (Max)</option>
+          <option value="10">10s</option>
           <option value="8">8s</option>
           <option value="5">5s</option>
         </select>

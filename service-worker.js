@@ -150,7 +150,7 @@ function isGoogleFlowUrl(urlStr, title = "") {
   if (!urlStr || typeof urlStr !== "string") return false;
   const lower = urlStr.toLowerCase();
   const tLower = (title || "").toLowerCase();
-  if (lower.includes("google.com/search")) return false;
+  if (lower.includes("google.com/search") || lower.includes("flowmusic.app")) return false;
   return (
     lower.includes("flow.google.com") ||
     lower.includes("labs.google/fx/tools/flow") ||
@@ -158,7 +158,7 @@ function isGoogleFlowUrl(urlStr, title = "") {
     lower.includes("labs.google/flow") ||
     lower.includes("flow.google") ||
     lower.includes("aitestkitchen.withgoogle.com") ||
-    (tLower.includes("google flow") && !tLower.includes("search"))
+    (tLower.includes("google flow") && !tLower.includes("search") && !tLower.includes("music"))
   );
 }
 
@@ -1695,6 +1695,7 @@ async function handleAutonomousStoryboardPipeline(payload, progressCallback) {
 
   const tabId = await ensureFlowTab();
   if (!tabId) throw new Error("Could not connect to or auto-open Google Flow tab.");
+  await ensureOnProjectCanvas(tabId);
 
   // Focus Google Flow tab so the user visibly sees the automation in real time
   await chrome.tabs.update(tabId, { active: true }).catch(() => {});
@@ -2403,6 +2404,7 @@ async function handleGenerateImage(payload) {
 
   const tabId = await ensureFlowTab();
   if (!tabId) throw new Error("Could not connect to or auto-open Google Flow tab.");
+  await ensureOnProjectCanvas(tabId);
 
   const startTime = Date.now();
 
@@ -3340,6 +3342,7 @@ async function handleGenerateCharacter(payload) {
 
   const tabId = await ensureFlowTab();
   if (!tabId) throw new Error("Could not connect to or auto-open Google Flow tab.");
+  await ensureOnProjectCanvas(tabId);
 
   // 1. Ensure tab is on the character creation page
   const tab = await chrome.tabs.get(tabId);

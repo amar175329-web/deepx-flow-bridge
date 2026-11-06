@@ -4690,20 +4690,43 @@ async function handleGenerateMusic(payload = {}) {
         }
         await new Promise(r => setTimeout(r, 1200));
 
-        // 2. Query mounted audio elements
-        const audios = Array.from(document.querySelectorAll("audio")).map(a => a.src).filter(s => s && s.length > 5);
+        // 2. Query mounted audio elements and true media streams
+        const audios = Array.from(document.querySelectorAll("audio")).map(a => a.src || a.currentSrc).filter(s => s && s.length > 5 && !s.startsWith("blob:null"));
         const perfAudios = (window.performance ? window.performance.getEntriesByType("resource") : [])
           .map(r => r.name)
-          .filter(n => n.includes(".mp3") || n.includes(".wav") || n.includes("audio") || n.includes("flowmusic") || n.includes("googlevideo"));
+          .filter(n => (n.includes(".mp3") || n.includes(".wav") || n.includes(".m4a") || n.includes("googlevideo") || n.includes("audioplayer")) && !n.includes("__api/clips"));
 
-        // 3. Find and trigger direct download button if available
-        const dlBtn = Array.from(document.querySelectorAll("button[aria-label*='Download video' i], button[aria-label*='Download' i]")).pop();
+        // 3. Automated Audio Download via More Options -> Download -> Audio
         let clickedDownload = false;
-        if (dlBtn) {
-          try {
-            dlBtn.click();
-            clickedDownload = true;
-          } catch (_) {}
+        try {
+          const moreBtns = Array.from(document.querySelectorAll("button[aria-label*='More options' i], button:has(svg.lucide-ellipsis)"));
+          const lastMore = moreBtns.pop();
+          if (lastMore) {
+            lastMore.click();
+            await new Promise(r => setTimeout(r, 400));
+            const items = Array.from(document.querySelectorAll("[role='menuitem'], [role='option'], div[class*='menu'] button, [data-radix-collection-item]"));
+            const dlItem = items.find(el => /download/i.test(el.innerText || ""));
+            if (dlItem) {
+              dlItem.click();
+              await new Promise(r => setTimeout(r, 400));
+              const subItems = Array.from(document.querySelectorAll("[role='menuitem'], [role='option'], div[class*='menu'] button, [data-radix-collection-item]"));
+              const audioSub = subItems.find(el => /audio|mp3/i.test(el.innerText || ""));
+              if (audioSub) {
+                audioSub.click();
+                clickedDownload = true;
+              } else if (subItems.length > 0) {
+                subItems[0].click();
+                clickedDownload = true;
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (!clickedDownload) {
+          const dlBtn = Array.from(document.querySelectorAll("button[aria-label*='Download video' i], button[aria-label*='Download' i]")).pop();
+          if (dlBtn) {
+            try { dlBtn.click(); clickedDownload = true; } catch (_) {}
+          }
         }
 
         return {
@@ -5167,23 +5190,60 @@ async function connectToAntigravityServer(force = false) {
             const tabId = await ensureFlowMusicTab();
             const res = await chrome.scripting.executeScript({
               target: { tabId },
-              func: () => {
+              func: async (p) => {
+                const sleep = ms => new Promise(r => setTimeout(r, ms));
+                
+                // If action is play, click the play button!
+                if (p && p.action === "play") {
+                  const playBtns = Array.from(document.querySelectorAll("button:has(svg.lucide-play), button[aria-label*='Play' i]"));
+                  const targetBtn = playBtns[playBtns.length - 1];
+                  if (targetBtn) {
+                    targetBtn.click();
+                    await sleep(1500);
+                  }
+                }
+                
+                // If action is more_options, click ... to see dropdown menu items!
+                let menuItems = [];
+                if (p && p.action === "more_options") {
+                  const moreBtns = Array.from(document.querySelectorAll("button[aria-label*='More options' i], button:has(svg.lucide-ellipsis)"));
+                  const targetMore = moreBtns[moreBtns.length - 1];
+                  if (targetMore) {
+                    targetMore.click();
+                    await sleep(600);
+                    menuItems = Array.from(document.querySelectorAll("[role='menuitem'], [role='option'], div[class*='menu'] button, [data-radix-collection-item]"))
+                      .map(m => (m.innerText || m.textContent || "").trim());
+                  }
+                }
+
+                // If action is download_audio, click More Options -> Download -> Audio
+                let clickedDownloadAudio = false;
+                if (p && p.action === "download_audio") {
+                  const moreBtns = Array.from(document.querySelectorAll("button[aria-label*='More options' i], button:has(svg.lucide-ellipsis)"));
+                  const targetMore = moreBtns[moreBtns.length - 1];
+                  if (targetMore) {
+                    targetMore.click();
+                    await sleep(500);
+                    const items = Array.from(document.querySelectorAll("[role='menuitem'], [role='option'], div[class*='menu'] button, [data-radix-collection-item]"));
+                    const dlItem = items.find(el => /download/i.test(el.innerText || ""));
+                    if (dlItem) {
+                      dlItem.click();
+                      await sleep(500);
+                      const subItems = Array.from(document.querySelectorAll("[role='menuitem'], [role='option'], div[class*='menu'] button, [data-radix-collection-item]"));
+                      const audioSub = subItems.find(el => /audio|mp3/i.test(el.innerText || ""));
+                      if (audioSub) {
+                        audioSub.click();
+                        clickedDownloadAudio = true;
+                      }
+                    }
+                  }
+                }
+
                 const url = window.location.href;
                 const textareas = Array.from(document.querySelectorAll("textarea")).map(t => ({
                   placeholder: t.getAttribute("placeholder"),
                   value: t.value,
                   className: t.className
-                }));
-                const inputs = Array.from(document.querySelectorAll("input:not([type='hidden'])")).map(i => ({
-                  placeholder: i.getAttribute("placeholder"),
-                  value: i.value,
-                  type: i.type,
-                  className: i.className
-                }));
-                const editables = Array.from(document.querySelectorAll("[contenteditable='true']")).map(e => ({
-                  innerText: e.innerText,
-                  placeholder: e.getAttribute("placeholder"),
-                  className: e.className
                 }));
                 const buttons = Array.from(document.querySelectorAll("button")).map(b => ({
                   text: (b.innerText || "").trim().slice(0, 30),
@@ -5191,17 +5251,23 @@ async function connectToAntigravityServer(force = false) {
                   svgClass: b.querySelector("svg")?.getAttribute("class") || null,
                   disabled: b.disabled
                 }));
-                const audioElements = Array.from(document.querySelectorAll("audio")).map(a => a.src);
+                const audioElements = Array.from(document.querySelectorAll("audio")).map(a => ({ src: a.src, currentSrc: a.currentSrc }));
+                const perfResources = (window.performance ? window.performance.getEntriesByType("resource") : [])
+                  .map(r => r.name)
+                  .filter(n => n.includes(".mp3") || n.includes(".wav") || n.includes(".m4a") || n.includes("cdn") || n.includes("googlevideo") || n.includes("audio") || n.includes("clip"));
+
                 return {
                   url,
                   textareas,
-                  inputs,
-                  editables,
                   buttons: buttons.slice(0, 30),
                   audioElements,
+                  menuItems,
+                  clickedDownloadAudio,
+                  perfResources: perfResources.slice(-15),
                   bodyPreview: (document.body.innerText || "").slice(0, 300)
                 };
-              }
+              },
+              args: [payload]
             });
             result = res?.[0]?.result;
             break;

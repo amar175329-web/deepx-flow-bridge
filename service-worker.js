@@ -1024,18 +1024,6 @@ async function configureFlowSettingsFast(tabId, config = {}) {
     console.warn("[DeepX Fast] Error configuring Flow settings:", err);
   });
 }
-      if (closeTrigger && closeTrigger.getAttribute("aria-expanded") === "true") {
-        closeTrigger.click();
-        await new Promise(r => setTimeout(r, 100));
-      }
-
-      return { success: true };
-    },
-    args: [isVideo, targetRatio, targetDuration, targetCount, targetModel]
-  }).catch(err => {
-    console.warn("[DeepX Fast] Error configuring Flow settings:", err);
-  });
-}
 
 // Universal Library Asset Attacher for Google Flow:
 // Rapid micro-polling: checks current view first, navigates tabs with 15ms ticks,

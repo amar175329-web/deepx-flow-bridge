@@ -119,8 +119,10 @@ export class DeepXWsBridge {
             return;
           }
 
-          if (req.url === "/deepx.zip" || req.url === "/download" || req.url === "/deepx-v1.4.0.zip" || req.url === "/deepx-v1.3.9.zip" || req.url === "/deepx-v1.3.8.zip" || req.url === "/deepx-v1.3.7.zip" || req.url === "/deepx-v1.3.6.zip" || req.url === "/deepx-v1.3.5.zip" || req.url === "/deepx-v1.3.4.zip" || req.url === "/deepx-v1.3.2.zip" || req.url === "/deepx-v1.3.1.zip") {
+          if (req.url === "/deepx.zip" || req.url === "/download" || req.url === "/deepx-v1.4.1.zip" || req.url === "/deepx-v1.4.0.zip" || req.url === "/deepx-v1.3.9.zip" || req.url === "/deepx-v1.3.8.zip" || req.url === "/deepx-v1.3.7.zip" || req.url === "/deepx-v1.3.6.zip" || req.url === "/deepx-v1.3.5.zip" || req.url === "/deepx-v1.3.4.zip" || req.url === "/deepx-v1.3.2.zip" || req.url === "/deepx-v1.3.1.zip") {
             const possiblePaths = [
+              "/home/ubuntu/deepx-flow-bridge/deepx-v1.4.1.zip",
+              "/home/ubuntu/outputs/2026-11/deepx/deepx-v1.4.1.zip",
               "/home/ubuntu/deepx-flow-bridge/deepx-v1.4.0.zip",
               "/home/ubuntu/outputs/2026-11/deepx/deepx-v1.4.0.zip",
               "/home/ubuntu/deepx-flow-bridge/deepx-v1.3.9.zip",
